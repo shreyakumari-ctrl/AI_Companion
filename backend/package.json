@@ -1,0 +1,31 @@
+{
+  "name": "@ai-companion/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "db:bootstrap": "node scripts/apply-local-schema.js",
+    "smoke": "node scripts/smoke-test.js"
+  },
+  "dependencies": {
+    "@prisma/adapter-better-sqlite3": "latest",
+    "@prisma/client": "latest",
+    "better-sqlite3": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/cors": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "prisma": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

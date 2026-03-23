@@ -1,0 +1,20 @@
+{
+  "name": "ai-companion-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "db:generate": "npm run prisma:generate --workspace backend",
+    "db:migrate": "npm run prisma:migrate --workspace backend",
+    "db:bootstrap": "npm run db:bootstrap --workspace backend",
+    "smoke": "npm run smoke --workspace backend"
+  },
+  "devDependencies": {
+    "concurrently": "latest"
+  }
+}
