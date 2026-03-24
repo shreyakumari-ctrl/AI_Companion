@@ -1,52 +1,80 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { sendChatMessage } from "@/lib/api";
-import { ChatMessage, useChatStore } from "@/store/chat-store";
+import { FormEvent, useState, useRef, useEffect } from "react";
 
-function createMessage(
-  role: ChatMessage["role"],
-  content: string,
-): ChatMessage {
-  return {
-    id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    role,
-    content,
-    createdAt: new Date().toISOString(),
-  };
-}
+type ChatMessage = {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+};
 
 export default function HomePage() {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      sender: "ai",
+      text: "Hey 👋 I'm Clidy... your AI friend. What's on your mind today?",
+    },
+  ]);
   const [input, setInput] = useState("");
-  const { messages, isSending, error, addMessage, setIsSending, setError } =
-    useChatStore();
+  const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const message = input.trim();
-    if (!message) {
+    const textInput = input.trim();
+    if (!textInput) {
       return;
     }
 
-    addMessage(createMessage("user", message));
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      sender: "user",
+      text: textInput,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setIsSending(true);
+    setIsTyping(true);
     setError(null);
 
     try {
-      const response = await sendChatMessage(message);
-      console.info("AI Companion response", response);
-      addMessage(createMessage("assistant", response.reply));
-    } catch (submissionError) {
-      const errorMessage =
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to reach the backend right now.";
+      const response = await fetch("http://localhost:5000/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: textInput }),
+      });
 
-      setError(errorMessage);
+      if (!response.ok) {
+        throw new Error("Failed to reach API");
+      }
+
+      const data = await response.json();
+      
+      // Delay AI response by ~1 second for human-like feeling
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const aiReply: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        sender: "ai",
+        text: data.reply || "No reply from backend",
+      };
+
+      setMessages((prev) => [...prev, aiReply]);
+    } catch (submissionError) {
+      console.error(submissionError);
+      setError("Oops 😅 something went wrong, try again!");
     } finally {
-      setIsSending(false);
+      setIsTyping(false);
     }
   }
 
@@ -54,51 +82,58 @@ export default function HomePage() {
     <main className="shell">
       <section className="panel">
         <div className="hero">
-          <p className="eyebrow">AI Companion</p>
-          <h1>First Full-Stack Pulse</h1>
-          <p className="subcopy">
-            This screen proves the transport layer is alive. A user message
-            moves from Next.js to Express and comes back as an assistant reply.
-          </p>
+          <h1>✨ Clidy AI</h1>
+          <span className="subtitle">
+            <div className="status-dot" />
+            online • always here for you
+          </span>
         </div>
 
-        <div className="chatLog" aria-live="polite">
-          {messages.map((message) => (
-            <article
-              className={`messageCard messageCard--${message.role}`}
-              key={message.id}
-            >
-              <span className="messageRole">
-                {message.role === "user" ? "You" : "AI"}
-              </span>
-              <p>{message.content}</p>
-            </article>
-          ))}
+        <div className="chat-container">
+          <div className="chatLog" aria-live="polite">
+            {messages.map((message) => (
+              <article
+                className={`messageCard messageCard--${message.sender === "ai" ? "assistant" : "user"}`}
+                key={message.id}
+              >
+                <p>{message.text}</p>
+              </article>
+            ))}
+            
+            {isTyping && (
+              <div className="typing-indicator">
+                <span />
+                <span />
+                <span />
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
         </div>
 
         <form className="composer" onSubmit={handleSubmit}>
-          <label className="composerLabel" htmlFor="message">
-            Send the first message
-          </label>
-          <div className="composerRow">
-            <input
-              id="message"
-              name="message"
-              className="composerInput"
-              placeholder="Type something friendly..."
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              disabled={isSending}
-            />
-            <button className="composerButton" type="submit" disabled={isSending}>
-              {isSending ? "Sending..." : "Send"}
-            </button>
-          </div>
-          {error ? <p className="status status--error">{error}</p> : null}
-          {!error && isSending ? (
-            <p className="status">Waiting for the backend heartbeat...</p>
-          ) : null}
+          <input
+            id="message"
+            name="message"
+            className="composerInput"
+            placeholder="Talk to Clidy... 😊"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            disabled={isTyping}
+            autoComplete="off"
+          />
+          <button 
+            className="composerButton" 
+            type="submit" 
+            disabled={isTyping || !input.trim()}
+            title="Send Message"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
         </form>
+        {error ? <p className="status status--error">{error}</p> : null}
       </section>
     </main>
   );
