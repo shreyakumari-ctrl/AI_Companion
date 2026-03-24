@@ -4,18 +4,51 @@ const Database = require("better-sqlite3");
 
 const projectRoot = path.resolve(__dirname, "..");
 const databasePath = path.join(projectRoot, "prisma", "dev.db");
-const migrationPath = path.join(
-  projectRoot,
-  "prisma",
-  "migrations",
-  "20260323193000_init",
-  "migration.sql",
-);
-
-const sql = fs.readFileSync(migrationPath, "utf8");
 const database = new Database(databasePath);
 
-database.exec(sql);
+const migrationsRoot = path.join(projectRoot, "prisma", "migrations");
+const migrationDirectories = fs
+  .readdirSync(migrationsRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
+
+database.exec(`
+  CREATE TABLE IF NOT EXISTS "_LocalMigration" (
+    "name" TEXT NOT NULL PRIMARY KEY,
+    "appliedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+const selectAppliedMigration = database.prepare(
+  'SELECT 1 FROM "_LocalMigration" WHERE "name" = ?',
+);
+const insertAppliedMigration = database.prepare(
+  'INSERT INTO "_LocalMigration" ("name") VALUES (?)',
+);
+const applyMigration = database.transaction((migrationName, sql) => {
+  database.exec(sql);
+  insertAppliedMigration.run(migrationName);
+});
+
+let appliedCount = 0;
+let skippedCount = 0;
+
+for (const directory of migrationDirectories) {
+  if (selectAppliedMigration.get(directory)) {
+    skippedCount += 1;
+    continue;
+  }
+
+  const migrationPath = path.join(migrationsRoot, directory, "migration.sql");
+  const sql = fs.readFileSync(migrationPath, "utf8");
+
+  applyMigration(directory, sql);
+  appliedCount += 1;
+}
+
 database.close();
 
-console.log(`Applied local SQLite schema shell at ${databasePath}`);
+console.log(
+  `Applied ${appliedCount} local migration(s), skipped ${skippedCount}, database at ${databasePath}`,
+);
