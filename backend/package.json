@@ -7,11 +7,14 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:migrate:cli": "prisma migrate dev --name init",
+    "db:migrate": "node scripts/apply-local-schema.js",
     "db:bootstrap": "node scripts/apply-local-schema.js",
-    "smoke": "node scripts/smoke-test.js"
+    "smoke": "node scripts/smoke-test.js",
+    "verify": "node scripts/verify-backend.js"
   },
   "dependencies": {
+    "@google/genai": "latest",
     "@prisma/adapter-better-sqlite3": "latest",
     "@prisma/client": "latest",
     "better-sqlite3": "latest",
