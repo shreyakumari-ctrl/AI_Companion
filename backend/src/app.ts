@@ -67,7 +67,6 @@ app.get("/status", (_req, res) => {
 });
 
 app.use("/chat", chatRouter);
-app.use("/api/chat", inferenceRouter);
 app.use("/api", inferenceRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -32,7 +32,14 @@ export async function sendMessage(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw { status: response.status, message: errorText } as ApiError;
+    let errorMessage = errorText;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.error ?? errorJson.message ?? errorText;
+    } catch {
+      // not JSON, use raw text
+    }
+    throw { status: response.status, message: errorMessage } as ApiError;
   }
 
   const data = await response.json();
@@ -54,27 +61,42 @@ export async function sendMessageStream(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw { status: response.status, message: errorText } as ApiError;
+    let errorMessage = errorText;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.error ?? errorJson.message ?? errorText;
+    } catch {
+      // not JSON, use raw text
+    }
+    throw { status: response.status, message: errorMessage } as ApiError;
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw { status: 500, message: "No response body received from server." } as ApiError;
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const text = decoder.decode(value, { stream: true });
-    const lines = text.split("\n");
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process all complete SSE lines in the buffer
+    const lines = buffer.split("\n");
+    // Keep the last (potentially incomplete) line in the buffer
+    buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const content = line.slice("data: ".length);
-        if (content === "[DONE]") {
-          return;
-        }
-        onChunk(content);
-      }
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const content = trimmed.slice("data: ".length);
+      if (content === "[DONE]") return;
+      if (content === "[ERROR]") throw { status: 500, message: "Stream error from server." } as ApiError;
+      if (content) onChunk(content.replace(/\\n/g, "\n"));
     }
   }
 }

@@ -8,6 +8,11 @@ app.listen(port, () => {
   console.log(
     env.GEMINI_API_KEY
       ? `Gemini configured with model ${env.GEMINI_MODEL}`
-      : "Gemini not configured. Add GEMINI_API_KEY to backend/.env or root .env.",
+      : "Gemini not configured. Add GEMINI_API_KEY to backend/.env",
+  );
+  console.log(
+    env.OPENAI_API_KEY
+      ? `OpenAI configured with model ${env.OPENAI_MODEL}`
+      : "OpenAI not configured (optional). Add OPENAI_API_KEY to backend/.env to enable.",
   );
 });

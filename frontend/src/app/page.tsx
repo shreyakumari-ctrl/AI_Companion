@@ -25,13 +25,12 @@ export default function ChatInterface() {
   }, [messages, isStreaming]);
 
   async function submitMessage(text: string) {
-    if (!text.trim() || isStreaming) return;
+    if (!text.trim() || useChatStore.getState().isStreaming) return;
 
-    // Build history from current messages BEFORE adding new ones (last 5 complete turns)
+    // Build history from current complete messages BEFORE adding new ones
     const history: HistoryTurn[] = useChatStore
       .getState()
       .messages.filter((m) => m.status === "complete")
-      .slice(-10)
       .slice(-5)
       .map((m) => ({ sender: m.sender, text: m.text }));
 
@@ -81,7 +80,21 @@ export default function ChatInterface() {
     await submitMessage(text);
   }
 
-  async function handleRetry(messageText: string) {
+  async function handleRetry(messageId: string, messageText: string) {
+    // Remove the failed AI message AND the user message that preceded it
+    const msgs = useChatStore.getState().messages;
+    const failedIdx = msgs.findIndex((m) => m.id === messageId);
+    // The user message is the one right before the failed AI message
+    const precedingUserMsgId =
+      failedIdx > 0 && msgs[failedIdx - 1].sender === "user"
+        ? msgs[failedIdx - 1].id
+        : null;
+
+    useChatStore.setState((s) => ({
+      messages: s.messages.filter(
+        (m) => m.id !== messageId && m.id !== precedingUserMsgId
+      ),
+    }));
     await submitMessage(messageText);
   }
 
@@ -133,7 +146,7 @@ export default function ChatInterface() {
                   )}
                   {message.status === "failed" && (
                     <button
-                      onClick={() => handleRetry(message.text)}
+                      onClick={() => handleRetry(message.id, message.text)}
                       aria-label="Retry message"
                     >
                       ↺ Retry

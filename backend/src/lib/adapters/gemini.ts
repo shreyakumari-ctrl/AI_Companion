@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Content } from "@google/genai";
 import { env } from "../env";
 
 export interface HistoryTurn {
@@ -23,15 +23,31 @@ export interface LLMAdapter {
   generateStream(req: InferenceRequest, onChunk: (chunk: string) => void): Promise<void>;
 }
 
-function buildContents(req: InferenceRequest): string[] {
-  const contents: string[] = [req.template.systemInstruction];
+function buildContents(req: InferenceRequest): Content[] {
+  const contents: Content[] = [];
+
+  // System instruction as first user turn (Gemini doesn't have a system role in basic API)
+  contents.push({
+    role: "user",
+    parts: [{ text: req.template.systemInstruction }],
+  });
+  contents.push({
+    role: "model",
+    parts: [{ text: "Understood. I will follow these instructions." }],
+  });
 
   for (const turn of req.history) {
-    const prefix = turn.sender === "user" ? "User" : "Assistant";
-    contents.push(`${prefix}: ${turn.text}`);
+    contents.push({
+      role: turn.sender === "user" ? "user" : "model",
+      parts: [{ text: turn.text }],
+    });
   }
 
-  contents.push(`User: ${req.message}`);
+  contents.push({
+    role: "user",
+    parts: [{ text: req.message }],
+  });
+
   return contents;
 }
 
@@ -73,8 +89,13 @@ class GeminiAdapter implements LLMAdapter {
       contents,
     });
 
-    for await (const chunk of stream) {
-      onChunk(chunk.text ?? "");
+    try {
+      for await (const chunk of stream) {
+        onChunk(chunk.text ?? "");
+      }
+    } catch (err) {
+      console.error("Gemini stream error:", err);
+      throw err;
     }
   }
 }

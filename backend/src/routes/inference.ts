@@ -24,7 +24,7 @@ const chatBodySchema = z.object({
 });
 
 // POST /api/chat — non-streaming
-router.post("/", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/chat", async (req: Request, res: Response, next: NextFunction) => {
   let body: z.infer<typeof chatBodySchema>;
 
   try {
@@ -75,7 +75,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /api/chat/stream — SSE streaming
-router.post("/stream", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/chat/stream", async (req: Request, res: Response, next: NextFunction) => {
   let body: z.infer<typeof chatBodySchema>;
 
   try {
@@ -101,6 +101,7 @@ router.post("/stream", async (req: Request, res: Response, next: NextFunction) =
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
 
   const systemInstruction = resolveTemplate(body.templateId, {
     tonePreference: body.tonePreference,
@@ -118,11 +119,16 @@ router.post("/stream", async (req: Request, res: Response, next: NextFunction) =
 
   try {
     await adapter.generateStream(inferenceReq, (chunk: string) => {
-      res.write(`data: ${chunk}\n\n`);
+      // Escape newlines in chunk content so SSE format stays valid
+      const safeChunk = chunk.replace(/\n/g, "\\n");
+      res.write(`data: ${safeChunk}\n\n`);
+      // Flush for proxies/nginx that buffer responses
+      if (typeof (res as any).flush === "function") (res as any).flush();
     });
     res.write("data: [DONE]\n\n");
     res.end();
   } catch (err) {
+    console.error("Stream generation error:", err);
     res.write("data: [ERROR]\n\n");
     res.end();
   }

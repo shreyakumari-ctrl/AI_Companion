@@ -6,7 +6,6 @@ import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useState } from "react";
 import type { Components } from "react-markdown";
-import type { Element } from "hast";
 
 interface Props {
   content: string;
@@ -55,13 +54,13 @@ export default function MarkdownRenderer({ content }: Props) {
   const components: Components = {
     code({ node, className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || "");
-      // In react-markdown v10, check parent node to determine if block code
-      const parent = (node as Element & { parent?: Element })?.parent;
-      const isBlock = parent?.type === "element" && parent?.tagName === "pre";
+      // Block code always has a language class from the fenced block syntax.
+      // Inline code never has one. This is the reliable detection in react-markdown v10.
+      const isBlock = Boolean(match);
 
-      if (isBlock && match) {
+      if (isBlock) {
         return (
-          <CodeBlock language={match[1]}>
+          <CodeBlock language={match![1]}>
             {String(children).replace(/\n$/, "")}
           </CodeBlock>
         );

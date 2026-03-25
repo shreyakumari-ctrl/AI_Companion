@@ -1,10 +1,16 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useChatStore } from "../store/chatStore";
 
 export default function ToastContainer() {
   const toasts = useChatStore((s) => s.toasts);
-  const dismissToast = useChatStore((s) => s.dismissToast);
+  const dismissToastAction = useChatStore((s) => s.dismissToast);
+
+  // Stable reference so the effect doesn't re-run on every render
+  const dismissToast = useCallback(
+    (id: string) => dismissToastAction(id),
+    [dismissToastAction]
+  );
 
   const activeToast = toasts[0];
 

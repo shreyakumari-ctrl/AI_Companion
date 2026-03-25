@@ -28,7 +28,7 @@ class OpenAIAdapter implements LLMAdapter {
       throw new Error("OpenAI adapter is not available: OPENAI_API_KEY is not set.");
     }
     if (!this.client) {
-      this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+      this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY! });
     }
     return this.client;
   }
@@ -59,8 +59,13 @@ class OpenAIAdapter implements LLMAdapter {
       stream: true,
     });
 
-    for await (const chunk of stream) {
-      onChunk(chunk.choices[0]?.delta?.content ?? "");
+    try {
+      for await (const chunk of stream) {
+        onChunk(chunk.choices[0]?.delta?.content ?? "");
+      }
+    } catch (err) {
+      console.error("OpenAI stream error:", err);
+      throw err;
     }
   }
 }

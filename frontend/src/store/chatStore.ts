@@ -53,7 +53,9 @@ export const useChatStore = create<ChatStore>((set) => ({
   appendChunk: (id, chunk) =>
     set((state) => ({
       messages: state.messages.map((m) =>
-        m.id === id ? { ...m, text: m.text + chunk, status: "streaming" } : m
+        m.id === id
+          ? { ...m, text: m.text + chunk, ...(m.status !== "streaming" && { status: "streaming" as const }) }
+          : m
       ),
     })),
 
