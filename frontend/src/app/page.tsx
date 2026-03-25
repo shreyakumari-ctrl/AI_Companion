@@ -1,81 +1,88 @@
 "use client";
 
 import { FormEvent, useState, useRef, useEffect } from "react";
+import { useChatStore } from "../store/chatStore";
+import { sendMessageStream, ApiError, HistoryTurn } from "../services/chatApi";
+import MarkdownRenderer from "../components/MarkdownRenderer";
+import TypingIndicator from "../components/TypingIndicator";
+import ToastContainer from "../components/ToastContainer";
 
-type ChatMessage = {
-  id: string;
-  sender: "user" | "ai";
-  text: string;
-};
-
-export default function HomePage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      sender: "ai",
-      text: "Hey 👋 I'm Clidy... your AI friend. What's on your mind today?",
-    },
-  ]);
+export default function ChatInterface() {
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom of chat
+  const messages = useChatStore((s) => s.messages);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const addMessage = useChatStore((s) => s.addMessage);
+  const appendChunk = useChatStore((s) => s.appendChunk);
+  const markComplete = useChatStore((s) => s.markComplete);
+  const markFailed = useChatStore((s) => s.markFailed);
+  const clearHistory = useChatStore((s) => s.clearHistory);
+  const pushToast = useChatStore((s) => s.pushToast);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages, isStreaming]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitMessage(text: string) {
+    if (!text.trim() || isStreaming) return;
 
-    const textInput = input.trim();
-    if (!textInput) {
-      return;
-    }
+    // Build history from current messages BEFORE adding new ones (last 5 complete turns)
+    const history: HistoryTurn[] = useChatStore
+      .getState()
+      .messages.filter((m) => m.status === "complete")
+      .slice(-10)
+      .slice(-5)
+      .map((m) => ({ sender: m.sender, text: m.text }));
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      sender: "user",
-      text: textInput,
-    };
+    // Add user message
+    addMessage({ sender: "user", text, status: "complete" });
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsTyping(true);
-    setError(null);
+    // Add AI placeholder
+    addMessage({ sender: "ai", text: "", status: "streaming" });
+
+    // Get the AI message ID — it's the last message added
+    const aiMessageId = useChatStore.getState().messages.at(-1)!.id;
 
     try {
-      const response = await fetch("http://localhost:5000/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: textInput }),
+      await sendMessageStream(text, history, (chunk) => {
+        appendChunk(aiMessageId, chunk);
       });
+      markComplete(aiMessageId);
+    } catch (err) {
+      markFailed(aiMessageId);
 
-      if (!response.ok) {
-        throw new Error("Failed to reach API");
+      if (err instanceof TypeError) {
+        pushToast({
+          message: "Connection lost. Check your network and try again.",
+          type: "error",
+        });
+      } else if (err && typeof err === "object" && "status" in err) {
+        const apiErr = err as ApiError;
+        if (apiErr.status >= 500) {
+          pushToast({
+            message: "Something went wrong on our end. Please try again.",
+            type: "error",
+          });
+        } else {
+          pushToast({ message: apiErr.message, type: "error" });
+        }
+      } else {
+        pushToast({ message: "An unexpected error occurred.", type: "error" });
       }
-
-      const data = await response.json();
-      
-      // Delay AI response by ~1 second for human-like feeling
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const aiReply: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        sender: "ai",
-        text: data.reply || "No reply from backend",
-      };
-
-      setMessages((prev) => [...prev, aiReply]);
-    } catch (submissionError) {
-      console.error(submissionError);
-      setError("Oops 😅 something went wrong, try again!");
-    } finally {
-      setIsTyping(false);
     }
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    await submitMessage(text);
+  }
+
+  async function handleRetry(messageText: string) {
+    await submitMessage(messageText);
   }
 
   return (
@@ -87,26 +94,59 @@ export default function HomePage() {
             <div className="status-dot" />
             online • always here for you
           </span>
+          <button
+            onClick={clearHistory}
+            style={{ marginLeft: "auto" }}
+            aria-label="Clear conversation"
+          >
+            Clear conversation
+          </button>
         </div>
 
         <div className="chat-container">
           <div className="chatLog" aria-live="polite">
             {messages.map((message) => (
-              <article
-                className={`messageCard messageCard--${message.sender === "ai" ? "assistant" : "user"}`}
+              <div
                 key={message.id}
+                className={`messageRow messageRow--${message.sender === "ai" ? "ai" : "user"}`}
               >
-                <p>{message.text}</p>
-              </article>
-            ))}
-            
-            {isTyping && (
-              <div className="typing-indicator">
-                <span />
-                <span />
-                <span />
+                {/* AI avatar on the left */}
+                {message.sender === "ai" && (
+                  <div className="avatar avatar--ai" aria-hidden="true">✦</div>
+                )}
+
+                <div className="messageBubbleWrap">
+                  {message.sender === "ai" && message.status === "streaming" && message.text === "" ? (
+                    <TypingIndicator />
+                  ) : (
+                    <article
+                      className={`messageCard messageCard--${
+                        message.sender === "ai" ? "assistant" : "user"
+                      }`}
+                    >
+                      {message.sender === "ai" ? (
+                        <MarkdownRenderer content={message.text} />
+                      ) : (
+                        <p>{message.text}</p>
+                      )}
+                    </article>
+                  )}
+                  {message.status === "failed" && (
+                    <button
+                      onClick={() => handleRetry(message.text)}
+                      aria-label="Retry message"
+                    >
+                      ↺ Retry
+                    </button>
+                  )}
+                </div>
+
+                {/* User avatar on the right */}
+                {message.sender === "user" && (
+                  <div className="avatar avatar--user" aria-hidden="true">U</div>
+                )}
               </div>
-            )}
+            ))}
             <div ref={chatEndRef} />
           </div>
         </div>
@@ -118,22 +158,23 @@ export default function HomePage() {
             className="composerInput"
             placeholder="Talk to Clidy... 😊"
             value={input}
-            onChange={(event) => setInput(event.target.value)}
-            disabled={isTyping}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={isStreaming}
             autoComplete="off"
           />
-          <button 
-            className="composerButton" 
-            type="submit" 
-            disabled={isTyping || !input.trim()}
+          <button
+            className="composerButton"
+            type="submit"
+            disabled={isStreaming || !input.trim()}
             title="Send Message"
           >
             <svg viewBox="0 0 24 24">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
             </svg>
           </button>
         </form>
-        {error ? <p className="status status--error">{error}</p> : null}
+
+        <ToastContainer />
       </section>
     </main>
   );
