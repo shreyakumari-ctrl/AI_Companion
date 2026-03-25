@@ -10,6 +10,9 @@ const envSchema = z.object({
     .transform((value) => (value.length > 0 ? value : undefined))
     .optional(),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  OPENAI_API_KEY: z.string().trim().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  DEFAULT_PROMPT_TEMPLATE: z.string().default("default"),
 });
 
 export const env = envSchema.parse({
@@ -18,4 +21,7 @@ export const env = envSchema.parse({
   DATABASE_URL: process.env.DATABASE_URL,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
+  DEFAULT_PROMPT_TEMPLATE: process.env.DEFAULT_PROMPT_TEMPLATE,
 });

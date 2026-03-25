@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { env } from "./lib/env";
 import chatRouter from "./routes/chat";
+import inferenceRouter from "./routes/inference";
 
 const app = express();
 
@@ -66,7 +67,8 @@ app.get("/status", (_req, res) => {
 });
 
 app.use("/chat", chatRouter);
-app.use("/api/chat", chatRouter);
+app.use("/api/chat", inferenceRouter);
+app.use("/api", inferenceRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof Error && error.message.includes("allowed by CORS")) {
