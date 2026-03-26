@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useRef, useEffect, useState } from "react";
+import { FormEvent, useRef, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { sendMessage } from "@/services/api";
+import { sendMessageStream, MessageTurn, ApiError } from "@/services/api";
+import PersonalitySelector, { Personality } from "@/components/PersonalitySelector";
 
 type Message = {
   id: string;
@@ -21,6 +22,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [personality, setPersonality] = useState<Personality>("Friendly");
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,17 +31,6 @@ export default function ChatPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
-
-  /** Stream AI response character by character */
-  async function streamText(fullText: string, msgId: string) {
-    for (let i = 1; i <= fullText.length; i++) {
-      // ~20ms per character feels natural without being slow
-      await new Promise((r) => setTimeout(r, 18));
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, text: fullText.slice(0, i) } : m))
-      );
-    }
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -52,33 +43,62 @@ export default function ChatPage() {
       sender: "user",
       text,
     };
+    
+    // Add user message to UI
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
     setError(null);
 
-    try {
-      // 2. Call API
-      const reply = await sendMessage(text);
+    // Prepare history for API call (excluding current message)
+    const history: MessageTurn[] = messages.map(m => ({
+      sender: m.sender,
+      text: m.text
+    }));
 
-      // 3. Stop typing indicator, add empty AI bubble, then stream text
-      setIsTyping(false);
+    try {
+      let aiText = "";
       const aiId = `ai-${Date.now()}`;
-      setMessages((prev) => [...prev, { id: aiId, sender: "ai", text: "" }]);
-      await streamText(reply, aiId);
-    } catch {
+      
+      // Call streaming API
+      await sendMessageStream(
+        text,
+        personality,
+        history,
+        (chunk) => {
+          // Once we get first chunk, stop showing "Clidy is typing" and show AI bubble
+          if (aiText === "") {
+            setIsTyping(false);
+            setMessages((prev) => [...prev, { id: aiId, sender: "ai", text: "" }]);
+          }
+          
+          aiText += chunk;
+          
+          // Update the specific AI message with accumulated text
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: aiText } : m))
+          );
+        }
+      );
+      
       setIsTyping(false);
-      setError("Oops 😅 Something went wrong. Please try again!");
+    } catch (err) {
+      setIsTyping(false);
+      const apiErr = err as ApiError;
+      setError(apiErr.message || "Oops 😅 Something went wrong. Please try again!");
     } finally {
       inputRef.current?.focus();
     }
   }
 
   function handleRetry() {
-    setError(null);
-    // Pre-fill input with the last user message so they can re-send
     const lastUser = [...messages].reverse().find((m) => m.sender === "user");
-    if (lastUser) setInput(lastUser.text);
+    if (lastUser) {
+      setInput(lastUser.text);
+      setError(null);
+    } else {
+      setError(null);
+    }
   }
 
   return (
@@ -100,6 +120,13 @@ export default function ChatPage() {
           </div>
         </header>
 
+        {/* ── Personality Selector ──────────────────── */}
+        <PersonalitySelector 
+          selected={personality} 
+          onSelect={setPersonality}
+          disabled={isTyping} 
+        />
+
         {/* ── Messages ───────────────────────────────── */}
         <div className="chat-messages">
           <div className="chat-log" aria-live="polite" aria-label="Chat messages">
@@ -114,6 +141,11 @@ export default function ChatPage() {
                   </div>
                 )}
                 <p className="bubble-text">{msg.text || "\u00A0"}</p>
+                {msg.sender === "user" && (
+                  <div className="bubble-avatar" aria-hidden="true">
+                    👤
+                  </div>
+                )}
               </article>
             ))}
 
@@ -123,7 +155,7 @@ export default function ChatPage() {
                 <div className="bubble-avatar" aria-hidden="true">
                   ✨
                 </div>
-                <div className="typing-indicator">
+                <div className="typing-indicator" title="Clidy is typing...">
                   <span />
                   <span />
                   <span />
@@ -150,7 +182,7 @@ export default function ChatPage() {
             ref={inputRef}
             id="chat-input"
             className="composer-input"
-            placeholder="Talk to Clidy... 😊"
+            placeholder={`Talk to Clidy... 😊`}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
