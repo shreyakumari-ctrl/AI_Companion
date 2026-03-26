@@ -1,19 +1,19 @@
 # AI Companion
 
-AI Companion is now scaffolded as a lightweight full-stack monorepo so the team can get a real frontend-to-backend pulse running immediately.
+AI Companion is a lightweight full-stack monorepo with a working chat loop, SSE streaming, conversation memory, and JWT-backed backend auth.
 
 ## What Is Ready
 
 - `frontend/`: Next.js chat UI on the current `main` branch.
-- `backend/`: Express API with `GET /health`, `GET /status`, `POST /api/chat`, and legacy `POST /chat/send`.
-- `backend/prisma/schema.prisma`: `User` and `ChatMessage` models for future context-aware replies.
+- `backend/`: Express API with `GET /health`, `GET /status`, `POST /api/chat`, `POST /api/chat/stream`, auth routes under `/api/auth`, and legacy `POST /chat/send`.
+- `backend/prisma/schema.prisma`: `User`, `Conversation`, `ChatMessage`, and `Session` models for memory and auth.
 - `docs/full-stack-sync.md`: API field contract for UI/UX and frontend/backend alignment.
 
 ## Branch Strategy
 
 - `main`: production-ready history only.
 - `dev`: integration branch for shared work.
-- `codex/fullstack-pulse`: current feature branch for this bootstrap.
+- `codex/<feature-name>`: working feature branches.
 
 Recommended flow:
 
@@ -28,8 +28,8 @@ Recommended flow:
 - Backend: Node.js + Express + Prisma + Gemini SDK
 - Database shell: SQLite for local development
 
-The frontend reads `NEXT_PUBLIC_API_BASE_URL`.
-The backend reads `PORT`, `FRONTEND_URL`, `DATABASE_URL`, `GEMINI_API_KEY`, and `GEMINI_MODEL`.
+The frontend reads `NEXT_PUBLIC_API_URL`.
+The backend reads `PORT`, `FRONTEND_URL`, `DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CONVERSATION_MEMORY_LIMIT`, `JWT_ACCESS_SECRET`, and `JWT_REFRESH_SECRET`.
 
 ## Environment Setup
 
@@ -37,6 +37,8 @@ Copy these files before starting:
 
 - `frontend/.env.local.example` -> `frontend/.env.local`
 - `backend/.env.example` -> `backend/.env`
+
+For stable auth sessions across backend restarts, set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` in `backend/.env`.
 
 ## Install And Run
 
@@ -66,7 +68,10 @@ POST /api/chat
 Content-Type: application/json
 
 {
-  "message": "Hello there"
+  "message": "Hello there",
+  "conversationId": "optional-cuid",
+  "history": [],
+  "provider": "gemini"
 }
 ```
 
@@ -78,6 +83,8 @@ Response shape:
   "timestamp": "2026-03-23T12:00:00.000Z",
   "provider": "gemini | fallback",
   "model": "gemini-2.5-flash | null",
+  "conversationId": "cuid",
+  "memoryCount": 4,
   "context": {
     "userId": null,
     "tonePreference": "friendly",
@@ -86,12 +93,33 @@ Response shape:
 }
 ```
 
+### Streaming
+
+```http
+POST /api/chat/stream
+Content-Type: application/json
+```
+
+The server responds as `text/event-stream` and emits `data: <chunk>` events followed by `data: [DONE]`.
+
+### Auth
+
+```http
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+GET /api/auth/me
+```
+
+Auth responses return an `accessToken`, `refreshToken`, `sessionId`, and `user`. Protected requests should send `Authorization: Bearer <accessToken>`.
+
 ## Team Handoff Notes
 
 - UI field names are documented in `docs/full-stack-sync.md`.
-- The current `main` frontend posts to `http://localhost:5000/api/chat`.
-- The backend now supports that route directly and still keeps `/chat/send` for legacy compatibility.
-- `npm run smoke` verifies `/health`, `/status`, `/api/chat`, and `/chat/send` against the compiled backend.
+- The current frontend uses `NEXT_PUBLIC_API_URL` and streams from `POST /api/chat/stream`.
+- The backend supports both anonymous chats and authenticated chats, and still keeps `/chat/send` for legacy compatibility.
+- `npm run verify:backend` now checks health, CORS, streaming, DB-backed memory, auth, and persistence against the compiled backend.
 
 ## Current Note On Prisma
 

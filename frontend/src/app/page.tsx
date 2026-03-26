@@ -1,194 +1,224 @@
 "use client";
 
-import { FormEvent, useState, useRef, useEffect } from "react";
-import { useChatStore } from "../store/chatStore";
-import { sendMessageStream, ApiError, HistoryTurn } from "../services/chatApi";
-import MarkdownRenderer from "../components/MarkdownRenderer";
-import TypingIndicator from "../components/TypingIndicator";
-import ToastContainer from "../components/ToastContainer";
+import Link from "next/link";
 
-export default function ChatInterface() {
-  const [input, setInput] = useState("");
-  const chatEndRef = useRef<HTMLDivElement>(null);
+const features = [
+  {
+    icon: "💬",
+    title: "Smart Conversations",
+    desc: "Clidy understands context, emotion, and nuance for conversations that actually make sense.",
+  },
+  {
+    icon: "😊",
+    title: "Mood Support",
+    desc: "Feeling down? Clidy listens, empathizes, and helps you work through whatever you're feeling.",
+  },
+  {
+    icon: "📅",
+    title: "Daily Help",
+    desc: "Plan your day, set reminders, or get help with tasks — Clidy is your productivity buddy.",
+  },
+  {
+    icon: "⚡",
+    title: "Fast & Simple",
+    desc: "Instant responses with a clean, distraction-free interface. No fluff, just help.",
+  },
+];
 
-  const messages = useChatStore((s) => s.messages);
-  const isStreaming = useChatStore((s) => s.isStreaming);
-  const addMessage = useChatStore((s) => s.addMessage);
-  const appendChunk = useChatStore((s) => s.appendChunk);
-  const markComplete = useChatStore((s) => s.markComplete);
-  const markFailed = useChatStore((s) => s.markFailed);
-  const clearHistory = useChatStore((s) => s.clearHistory);
-  const pushToast = useChatStore((s) => s.pushToast);
+const steps = [
+  {
+    num: "01",
+    title: "Type your message",
+    desc: "Write anything — a question, a worry, or just a 'hi'.",
+  },
+  {
+    num: "02",
+    title: "Clidy understands",
+    desc: "Clidy reads your tone, context, and intent carefully.",
+  },
+  {
+    num: "03",
+    title: "Get a helpful response",
+    desc: "Receive a thoughtful, warm reply tailored just for you.",
+  },
+];
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isStreaming]);
+const previewMessages = [
+  { sender: "ai", text: "Hey 👋 I'm Clidy! How are you feeling today?" },
+  { sender: "user", text: "I'm a bit stressed about my project deadline 😞" },
+  {
+    sender: "ai",
+    text: "I hear you! Deadlines can be tough. Want to break it down together? Sometimes that makes it feel much more manageable 💪",
+  },
+  { sender: "user", text: "That would actually be really helpful!" },
+];
 
-  async function submitMessage(text: string) {
-    if (!text.trim() || useChatStore.getState().isStreaming) return;
-
-    // Build history from current complete messages BEFORE adding new ones
-    const history: HistoryTurn[] = useChatStore
-      .getState()
-      .messages.filter((m) => m.status === "complete")
-      .slice(-5)
-      .map((m) => ({ sender: m.sender, text: m.text }));
-
-    // Add user message
-    addMessage({ sender: "user", text, status: "complete" });
-
-    // Add AI placeholder
-    addMessage({ sender: "ai", text: "", status: "streaming" });
-
-    // Get the AI message ID — it's the last message added
-    const aiMessageId = useChatStore.getState().messages.at(-1)!.id;
-
-    try {
-      await sendMessageStream(text, history, (chunk) => {
-        appendChunk(aiMessageId, chunk);
-      });
-      markComplete(aiMessageId);
-    } catch (err) {
-      markFailed(aiMessageId);
-
-      if (err instanceof TypeError) {
-        pushToast({
-          message: "Connection lost. Check your network and try again.",
-          type: "error",
-        });
-      } else if (err && typeof err === "object" && "status" in err) {
-        const apiErr = err as ApiError;
-        if (apiErr.status >= 500) {
-          pushToast({
-            message: "Something went wrong on our end. Please try again.",
-            type: "error",
-          });
-        } else {
-          pushToast({ message: apiErr.message, type: "error" });
-        }
-      } else {
-        pushToast({ message: "An unexpected error occurred.", type: "error" });
-      }
-    }
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text) return;
-    setInput("");
-    await submitMessage(text);
-  }
-
-  async function handleRetry(messageId: string, messageText: string) {
-    // Remove the failed AI message AND the user message that preceded it
-    const msgs = useChatStore.getState().messages;
-    const failedIdx = msgs.findIndex((m) => m.id === messageId);
-    // The user message is the one right before the failed AI message
-    const precedingUserMsgId =
-      failedIdx > 0 && msgs[failedIdx - 1].sender === "user"
-        ? msgs[failedIdx - 1].id
-        : null;
-
-    useChatStore.setState((s) => ({
-      messages: s.messages.filter(
-        (m) => m.id !== messageId && m.id !== precedingUserMsgId
-      ),
-    }));
-    await submitMessage(messageText);
-  }
-
+export default function LandingPage() {
   return (
-    <main className="shell">
-      <section className="panel">
-        <div className="hero">
-          <h1>✨ Clidy AI</h1>
-          <span className="subtitle">
-            <div className="status-dot" />
-            online • always here for you
-          </span>
-          <button
-            onClick={clearHistory}
-            style={{ marginLeft: "auto" }}
-            aria-label="Clear conversation"
-          >
-            Clear conversation
-          </button>
+    <div className="landing">
+      {/* ── Navbar ─────────────────────────────────────── */}
+      <nav className="navbar">
+        <div className="navbar-inner">
+          <div className="nav-logo">✨ Clidy AI</div>
+          <ul className="nav-links">
+            <li>
+              <a href="#home">Home</a>
+            </li>
+            <li>
+              <a href="#features">Features</a>
+            </li>
+            <li>
+              <Link href="/chat">Chat</Link>
+            </li>
+          </ul>
+          <Link href="/chat" className="nav-cta">
+            Start Chatting →
+          </Link>
         </div>
+      </nav>
 
-        <div className="chat-container">
-          <div className="chatLog" aria-live="polite">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`messageRow messageRow--${message.sender === "ai" ? "ai" : "user"}`}
-              >
-                {/* AI avatar on the left */}
-                {message.sender === "ai" && (
-                  <div className="avatar avatar--ai" aria-hidden="true">✦</div>
-                )}
-
-                <div className="messageBubbleWrap">
-                  {message.sender === "ai" && message.status === "streaming" && message.text === "" ? (
-                    <TypingIndicator />
-                  ) : (
-                    <article
-                      className={`messageCard messageCard--${
-                        message.sender === "ai" ? "assistant" : "user"
-                      }`}
-                    >
-                      {message.sender === "ai" ? (
-                        <MarkdownRenderer content={message.text} />
-                      ) : (
-                        <p>{message.text}</p>
-                      )}
-                    </article>
-                  )}
-                  {message.status === "failed" && (
-                    <button
-                      onClick={() => handleRetry(message.id, message.text)}
-                      aria-label="Retry message"
-                    >
-                      ↺ Retry
-                    </button>
-                  )}
-                </div>
-
-                {/* User avatar on the right */}
-                {message.sender === "user" && (
-                  <div className="avatar avatar--user" aria-hidden="true">U</div>
-                )}
-              </div>
-            ))}
-            <div ref={chatEndRef} />
+      {/* ── Hero ────────────────────────────────────────── */}
+      <section className="hero-section" id="home">
+        <div className="hero-bg-blob" />
+        <div className="hero-bg-blob hero-bg-blob--2" />
+        <div className="hero-content">
+          <div className="hero-badge">✨ Your Friendly AI Companion</div>
+          <h1 className="hero-title">Meet Clidy AI 💖</h1>
+          <p className="hero-subtitle">Your friendly AI companion</p>
+          <p className="hero-desc">
+            Clidy is more than just an AI — it&apos;s a caring companion that
+            listens, understands, and helps you navigate daily life with warmth
+            and intelligence.
+          </p>
+          <div className="hero-actions">
+            <Link href="/chat" className="btn btn-primary">
+              Start Chatting 💬
+            </Link>
+            <a href="#features" className="btn btn-ghost">
+              See Features ↓
+            </a>
+          </div>
+          <div className="hero-stats">
+            <div className="stat">
+              <span className="stat-num">💯</span>
+              <span>Always Available</span>
+            </div>
+            <div className="stat">
+              <span className="stat-num">🤝</span>
+              <span>Truly Caring</span>
+            </div>
+            <div className="stat">
+              <span className="stat-num">⚡</span>
+              <span>Instant Replies</span>
+            </div>
           </div>
         </div>
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <input
-            id="message"
-            name="message"
-            className="composerInput"
-            placeholder="Talk to Clidy... 😊"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={isStreaming}
-            autoComplete="off"
-          />
-          <button
-            className="composerButton"
-            type="submit"
-            disabled={isStreaming || !input.trim()}
-            title="Send Message"
-          >
-            <svg viewBox="0 0 24 24">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
-        </form>
-
-        <ToastContainer />
       </section>
-    </main>
+
+      {/* ── Features ────────────────────────────────────── */}
+      <section className="features-section" id="features">
+        <div className="section-container">
+          <div className="section-label">Features</div>
+          <h2 className="section-title">
+            Everything you need from an AI friend
+          </h2>
+          <p className="section-subtitle">
+            Clidy blends intelligence with empathy to give you an experience
+            that feels genuinely human.
+          </p>
+          <div className="features-grid">
+            {features.map((f, i) => (
+              <div
+                key={f.title}
+                className="feature-card"
+                style={{ animationDelay: `${i * 0.12}s` }}
+              >
+                <div className="feature-icon">{f.icon}</div>
+                <h3 className="feature-title">{f.title}</h3>
+                <p className="feature-desc">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── How It Works ────────────────────────────────── */}
+      <section className="how-section">
+        <div className="section-container">
+          <div className="section-label">How it works</div>
+          <h2 className="section-title">Simple, fast, and human-like</h2>
+          <div className="steps-grid">
+            {steps.map((s) => (
+              <div key={s.num} className="step-card">
+                <div className="step-num">{s.num}</div>
+                <h3 className="step-title">{s.title}</h3>
+                <p className="step-desc">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Chat Preview ────────────────────────────────── */}
+      <section className="preview-section">
+        <div className="section-container preview-inner">
+          <div className="preview-text">
+            <div className="section-label">Live Preview</div>
+            <h2 className="section-title">See Clidy in action</h2>
+            <p className="section-subtitle">
+              Real conversations, real empathy. Clidy adapts to your mood and
+              needs instantly.
+            </p>
+            <Link href="/chat" className="btn btn-primary">
+              Try it yourself →
+            </Link>
+          </div>
+          <div className="chat-preview-box">
+            <div className="chat-preview-header">
+              <div className="preview-dot" />
+              <span>✨ Clidy AI</span>
+              <span className="preview-status">● online</span>
+            </div>
+            <div className="chat-preview-messages">
+              {previewMessages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`preview-bubble preview-bubble--${m.sender}`}
+                  style={{ animationDelay: `${i * 0.25}s` }}
+                >
+                  {m.text}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── CTA ─────────────────────────────────────────── */}
+      <section className="cta-section">
+        <div className="cta-inner">
+          <div className="cta-glow" />
+          <h2 className="cta-title">Start your journey with Clidy 💫</h2>
+          <p className="cta-desc">
+            Join the experience of having an AI that truly cares about you.
+          </p>
+          <Link href="/chat" className="btn btn-white">
+            Try Now — It&apos;s Free ✨
+          </Link>
+        </div>
+      </section>
+
+      {/* ── Footer ──────────────────────────────────────── */}
+      <footer className="footer">
+        <div className="footer-logo">✨ Clidy AI</div>
+        <p className="footer-tagline">Not just smart, but caring</p>
+        <div className="footer-links">
+          <a href="#home">Home</a>
+          <a href="#features">Features</a>
+          <Link href="/chat">Chat</Link>
+        </div>
+        <p className="footer-copy">© 2025 Clidy AI. Made with 💜</p>
+      </footer>
+    </div>
   );
 }

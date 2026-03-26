@@ -1,10 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Companion",
-  description: "First full-stack pulse for AI Companion.",
+  title: "Clidy AI — Your Friendly AI Companion",
+  description:
+    "Clidy AI is a lovable, caring AI companion that helps you with conversations, emotional support, and daily tasks.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
