@@ -1,50 +1,9 @@
 import { NextFunction, Request, Response, Router } from "express";
-import { z } from "zod";
-import { generateAssistantReply } from "../lib/gemini";
-import { prisma } from "../lib/prisma";
+import { chatRequestSchema } from "../lib/chat-contract";
+import { executeChat } from "../lib/chat-service";
+import { optionalAuth, type AuthenticatedRequest } from "../middleware/auth";
 
 const router = Router();
-
-const chatRequestSchema = z.object({
-  message: z.string().trim().min(1).max(1000),
-  userId: z.string().cuid().nullable().optional(),
-  history: z
-    .array(
-      z.object({
-        sender: z.enum(["user", "ai"]),
-        text: z.string().trim().min(1).max(4000),
-      }),
-    )
-    .optional(),
-});
-
-async function bestEffortPersistChatTurn(params: {
-  userId: string | null;
-  message: string;
-  reply: string;
-  provider: string;
-}) {
-  try {
-    await prisma.chatMessage.createMany({
-      data: [
-        {
-          role: "user",
-          content: params.message,
-          userId: params.userId,
-          provider: "client",
-        },
-        {
-          role: "assistant",
-          content: params.reply,
-          userId: params.userId,
-          provider: params.provider,
-        },
-      ],
-    });
-  } catch (error) {
-    console.warn("Chat persistence skipped.", error);
-  }
-}
 
 async function handleChatRequest(
   req: Request,
@@ -61,47 +20,26 @@ async function handleChatRequest(
       });
     }
 
-    const { message, userId } = parsedRequest.data;
-    const user = userId
-      ? await prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
-        })
-      : null;
-
-    const context = {
-      userId: user?.id ?? null,
-      tonePreference: user?.tonePreference ?? "friendly",
-      mood: user?.mood ?? "curious",
-    };
-
-    const assistantReply = await generateAssistantReply({
-      message,
-      tonePreference: context.tonePreference,
-      mood: context.mood,
-    });
-
-    await bestEffortPersistChatTurn({
-      userId: context.userId,
-      message,
-      reply: assistantReply.reply,
-      provider: assistantReply.provider,
-    });
+    const result = await executeChat(
+      parsedRequest.data,
+      (req as AuthenticatedRequest).auth,
+    );
 
     return res.status(200).json({
-      reply: assistantReply.reply,
+      reply: result.reply,
       timestamp: new Date().toISOString(),
-      provider: assistantReply.provider,
-      model: assistantReply.model,
-      context,
+      provider: result.provider,
+      model: result.model,
+      context: result.context,
+      conversationId: result.conversationId,
+      memoryCount: result.memoryCount,
     });
   } catch (error) {
     return next(error);
   }
 }
 
-router.post("/", handleChatRequest);
-router.post("/send", handleChatRequest);
+router.post("/", optionalAuth, handleChatRequest);
+router.post("/send", optionalAuth, handleChatRequest);
 
 export default router;

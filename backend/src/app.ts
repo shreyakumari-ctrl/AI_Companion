@@ -1,7 +1,11 @@
 import "./load-env";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+import { ZodError } from "zod";
 import { env } from "./lib/env";
+import { HttpError } from "./lib/http-error";
+import authRouter from "./routes/auth";
 import chatRouter from "./routes/chat";
 import inferenceRouter from "./routes/inference";
 
@@ -39,6 +43,9 @@ function isAllowedOrigin(origin: string) {
 
 app.use(
   cors({
+    credentials: true,
+    exposedHeaders: ["x-conversation-id", "x-llm-provider", "x-llm-model"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     origin(origin, callback) {
       if (!origin || isAllowedOrigin(origin)) {
         return callback(null, true);
@@ -48,6 +55,7 @@ app.use(
     },
   }),
 );
+app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
 
 function sendHeartbeat(res: express.Response) {
@@ -68,12 +76,26 @@ app.get("/status", (_req, res) => {
 
 app.use("/chat", chatRouter);
 app.use("/api", inferenceRouter);
+app.use("/api/auth", authRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof Error && error.message.includes("allowed by CORS")) {
     console.warn(error.message);
 
     return res.status(403).json({
+      error: error.message,
+    });
+  }
+
+  if (error instanceof ZodError) {
+    return res.status(400).json({
+      error: "Invalid request payload.",
+      details: error.flatten(),
+    });
+  }
+
+  if (error instanceof HttpError) {
+    return res.status(error.statusCode).json({
       error: error.message,
     });
   }

@@ -15,4 +15,10 @@ app.listen(port, () => {
       ? `OpenAI configured with model ${env.OPENAI_MODEL}`
       : "OpenAI not configured (optional). Add OPENAI_API_KEY to backend/.env to enable.",
   );
+  console.log(`Conversation memory window set to ${env.CONVERSATION_MEMORY_LIMIT} turns.`);
+  console.log(
+    env.JWT_ACCESS_SECRET && env.JWT_REFRESH_SECRET
+      ? "JWT auth configured from environment."
+      : "JWT auth running with ephemeral development secrets. Add JWT_ACCESS_SECRET and JWT_REFRESH_SECRET to backend/.env for persistent sessions.",
+  );
 });

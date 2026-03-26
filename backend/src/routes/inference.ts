@@ -1,145 +1,107 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z, ZodError } from "zod";
-import { providerRegistry, InferenceRequest, HistoryTurn } from "../lib/adapters";
-import { resolveTemplate } from "../lib/promptTemplates";
+import { chatRequestSchema } from "../lib/chat-contract";
+import { executeChat, streamChat } from "../lib/chat-service";
+import { optionalAuth, type AuthenticatedRequest } from "../middleware/auth";
 
 const router = Router();
 
-const chatBodySchema = z.object({
-  message: z.string().min(1).max(1000),
-  provider: z.enum(["gemini", "openai"]).default("gemini"),
-  templateId: z.string().optional(),
-  history: z
-    .array(
-      z.object({
-        sender: z.enum(["user", "ai"]),
-        text: z.string(),
-      }),
-    )
-    .max(5)
-    .default([]),
-  userId: z.string().nullable().optional(),
-  tonePreference: z.string().optional(),
-  mood: z.string().optional(),
-});
+function writeSseChunk(res: Response, chunk: string) {
+  const safeChunk = chunk.replace(/\n/g, "\\n");
+  res.write(`data: ${safeChunk}\n\n`);
+
+  if (typeof (res as Response & { flush?: () => void }).flush === "function") {
+    (res as Response & { flush?: () => void }).flush?.();
+  }
+}
 
 // POST /api/chat — non-streaming
-router.post("/chat", async (req: Request, res: Response, next: NextFunction) => {
-  let body: z.infer<typeof chatBodySchema>;
+router.post(
+  "/chat",
+  optionalAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    let body: z.infer<typeof chatRequestSchema>;
 
-  try {
-    body = chatBodySchema.parse(req.body);
-  } catch (err) {
-    if (err instanceof ZodError) {
-      return res.status(400).json({ error: "Invalid request body.", details: err.issues });
+    try {
+      body = chatRequestSchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return res.status(400).json({
+          error: "Invalid request body.",
+          details: err.issues,
+        });
+      }
+      return next(err);
     }
-    return next(err);
-  }
 
-  const adapter = providerRegistry[body.provider];
-  if (!adapter) {
-    return res.status(400).json({ error: `Unknown provider: ${body.provider}` });
-  }
+    try {
+      const result = await executeChat(body, (req as AuthenticatedRequest).auth);
+      res.setHeader("x-conversation-id", result.conversationId);
+      res.setHeader("x-llm-provider", result.provider);
+      res.setHeader("x-llm-model", result.model ?? "");
 
-  if (!adapter.isAvailable()) {
-    return res
-      .status(503)
-      .json({ error: `Provider ${body.provider} is not configured on this server.` });
-  }
-
-  const systemInstruction = resolveTemplate(body.templateId, {
-    tonePreference: body.tonePreference,
-    mood: body.mood,
-  });
-
-  const history: HistoryTurn[] = body.history.slice(-5);
-
-  const inferenceReq: InferenceRequest = {
-    message: body.message,
-    history,
-    template: { systemInstruction },
-    userId: body.userId,
-  };
-
-  try {
-    const reply = await adapter.generate(inferenceReq);
-    return res.json({
-      reply,
-      provider: body.provider,
-      model: null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    return next(err);
-  }
-});
+      return res.json({
+        reply: result.reply,
+        provider: result.provider,
+        model: result.model,
+        conversationId: result.conversationId,
+        timestamp: new Date().toISOString(),
+        context: result.context,
+        memoryCount: result.memoryCount,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 // POST /api/chat/stream — SSE streaming
-router.post("/chat/stream", async (req: Request, res: Response, next: NextFunction) => {
-  let body: z.infer<typeof chatBodySchema>;
+router.post(
+  "/chat/stream",
+  optionalAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    let body: z.infer<typeof chatRequestSchema>;
 
-  try {
-    body = chatBodySchema.parse(req.body);
-  } catch (err) {
-    if (err instanceof ZodError) {
-      return res.status(400).json({ error: "Invalid request body.", details: err.issues });
+    try {
+      body = chatRequestSchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return res.status(400).json({
+          error: "Invalid request body.",
+          details: err.issues,
+        });
+      }
+      return next(err);
     }
-    return next(err);
-  }
 
-  const adapter = providerRegistry[body.provider];
-  if (!adapter) {
-    return res.status(400).json({ error: `Unknown provider: ${body.provider}` });
-  }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    res.write(":\n\n");
 
-  if (!adapter.isAvailable()) {
-    return res
-      .status(503)
-      .json({ error: `Provider ${body.provider} is not configured on this server.` });
-  }
+    try {
+      const result = await streamChat(
+        body,
+        (chunk: string) => {
+          writeSseChunk(res, chunk);
+        },
+        (req as AuthenticatedRequest).auth,
+      );
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const systemInstruction = resolveTemplate(body.templateId, {
-    tonePreference: body.tonePreference,
-    mood: body.mood,
-  });
-
-  const history: HistoryTurn[] = body.history.slice(-5);
-
-  const inferenceReq: InferenceRequest = {
-    message: body.message,
-    history,
-    template: { systemInstruction },
-    userId: body.userId,
-  };
-
-  try {
-    await adapter.generateStream(inferenceReq, (chunk: string) => {
-      // Escape newlines in chunk content so SSE format stays valid
-      const safeChunk = chunk.replace(/\n/g, "\\n");
-      res.write(`data: ${safeChunk}\n\n`);
-      // Flush for proxies/nginx that buffer responses
-      if (typeof (res as any).flush === "function") (res as any).flush();
-    });
-    res.write("data: [DONE]\n\n");
-    res.end();
-  } catch (err) {
-    console.error("Stream generation error:", err);
-    res.write("data: [ERROR]\n\n");
-    res.end();
-  }
-});
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (err) {
+      console.error("Stream generation error:", err);
+      res.write("data: [ERROR]\n\n");
+      res.end();
+    }
+  },
+);
 
 // GET /api/providers — list configured providers
 router.get("/providers", (_req: Request, res: Response) => {
-  const available = Object.keys(providerRegistry).filter((name) =>
-    providerRegistry[name].isAvailable(),
-  );
-  return res.json(available);
+  return res.json(["gemini", "openai", "fallback"]);
 });
 
 export default router;
