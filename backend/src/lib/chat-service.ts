@@ -326,13 +326,13 @@ export async function executeChat(
   let provider = prepared.provider;
   let cacheHit = false;
 
-  if (!prepared.adapter.isAvailable()) {
-    reply = buildFallbackReply(params.message);
-    provider = "fallback" as ProviderName;
-  } else if (cached) {
+  if (cached) {
     reply = cached.reply;
     provider = cached.provider as ProviderName;
     cacheHit = true;
+  } else if (!prepared.adapter.isAvailable()) {
+    reply = buildFallbackReply(params.message);
+    provider = "fallback" as ProviderName;
   } else {
     try {
       reply = (await prepared.adapter.generate(prepared.inferenceRequest)).trim();
@@ -386,14 +386,14 @@ export async function streamChat(
   let reply = "";
   let cacheHit = false;
 
-  if (!prepared.adapter.isAvailable()) {
-    reply = buildFallbackReply(params.message);
-    provider = "fallback" as ProviderName;
-    emitCharacters(reply, onChunk);
-  } else if (cached) {
+  if (cached) {
     reply = cached.reply;
     provider = cached.provider as ProviderName;
     cacheHit = true;
+    emitCharacters(reply, onChunk);
+  } else if (!prepared.adapter.isAvailable()) {
+    reply = buildFallbackReply(params.message);
+    provider = "fallback" as ProviderName;
     emitCharacters(reply, onChunk);
   } else {
     try {

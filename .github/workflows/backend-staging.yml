@@ -28,7 +28,7 @@ jobs:
           docker run -d --name clidy-backend-preview \
             -e PORT=5000 \
             -e FRONTEND_URL=http://localhost:3000 \
-            -e DATABASE_URL=file:./prisma/staging.db \
+            -e DATABASE_URL=file:./prisma/data/staging.db \
             -e GEMINI_MODEL=gemini-2.5-flash \
             -e CACHE_TTL_SECONDS=120 \
             -e CACHE_MAX_ENTRIES=400 \
@@ -50,7 +50,7 @@ jobs:
 
       - name: Show preview logs
         if: always()
-        run: docker logs clidy-backend-preview
+        run: docker logs clidy-backend-preview || true
 
       - name: Stop preview container
         if: always()

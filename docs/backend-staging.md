@@ -44,5 +44,5 @@ Backend staging will be exposed on `http://localhost:5000`.
 ## Notes
 
 - Current staging still uses SQLite because the checked-in Prisma datasource is SQLite.
-- `DATABASE_URL=file:./prisma/staging.db` keeps staging isolated from local dev.
+- `DATABASE_URL=file:./prisma/data/staging.db` keeps staging isolated from local dev without mounting over the checked-in Prisma migrations.
 - If you move to PostgreSQL later, update `backend/prisma/schema.prisma`, the migration flow, and the staging env template together.
