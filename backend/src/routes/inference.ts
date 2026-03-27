@@ -6,13 +6,20 @@ import { optionalAuth, type AuthenticatedRequest } from "../middleware/auth";
 
 const router = Router();
 
-function writeSseChunk(res: Response, chunk: string) {
-  const safeChunk = chunk.replace(/\n/g, "\\n");
-  res.write(`data: ${safeChunk}\n\n`);
+function writeSseEvent(res: Response, data: string, event?: string) {
+  if (event) {
+    res.write(`event: ${event}\n`);
+  }
+
+  res.write(`data: ${data}\n\n`);
 
   if (typeof (res as Response & { flush?: () => void }).flush === "function") {
     (res as Response & { flush?: () => void }).flush?.();
   }
+}
+
+function writeSseChunk(res: Response, chunk: string) {
+  writeSseEvent(res, chunk.replace(/\n/g, "\\n"));
 }
 
 // POST /api/chat — non-streaming
@@ -91,6 +98,19 @@ router.post(
         (req as AuthenticatedRequest).auth,
       );
 
+      writeSseEvent(
+        res,
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          provider: result.provider,
+          model: result.model,
+          conversationId: result.conversationId,
+          memoryCount: result.memoryCount,
+          cacheHit: result.cacheHit,
+          context: result.context,
+        }),
+        "meta",
+      );
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (err) {

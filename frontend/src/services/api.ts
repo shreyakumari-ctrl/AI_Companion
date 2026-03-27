@@ -12,6 +12,20 @@ export interface ApiError {
   message: string;
 }
 
+export interface ChatStreamMeta {
+  conversationId: string;
+  provider: string;
+  model: string | null;
+  memoryCount: number;
+  cacheHit: boolean;
+  context: {
+    userId: string | null;
+    tonePreference: string;
+    mood: string;
+  };
+  timestamp: string;
+}
+
 function normalizeApiError(status: number, rawMessage: string) {
   const message = rawMessage.trim();
 
@@ -52,6 +66,7 @@ async function parseApiError(response: Response): Promise<ApiError> {
 function consumeSseEventBlock(
   eventBlock: string,
   onChunk: (chunk: string) => void,
+  onMeta: (meta: ChatStreamMeta) => void,
 ) {
   let eventType = "message";
   const dataLines: string[] = [];
@@ -92,6 +107,12 @@ function consumeSseEventBlock(
   }
 
   if (eventType === "meta") {
+    try {
+      onMeta(JSON.parse(data) as ChatStreamMeta);
+    } catch {
+      throw normalizeApiError(500, "The stream metadata payload was malformed.");
+    }
+
     return false;
   }
 
@@ -104,8 +125,10 @@ export async function sendMessageStream(
   personality: PersonalityPreset,
   history: MessageTurn[],
   onChunk: (chunk: string) => void,
-): Promise<void> {
+  conversationId?: string | null,
+): Promise<ChatStreamMeta | null> {
   let response: Response;
+  let streamMeta: ChatStreamMeta | null = null;
 
   try {
     response = await fetch(`${API_URL}/api/chat/stream`, {
@@ -114,6 +137,7 @@ export async function sendMessageStream(
       body: JSON.stringify({
         message,
         history: history.slice(-12),
+        conversationId,
         ...getPersonalityPayload(personality),
       }),
     });
@@ -144,10 +168,14 @@ export async function sendMessageStream(
     buffer = eventBlocks.pop() ?? "";
 
     for (const eventBlock of eventBlocks) {
-      const isDone = consumeSseEventBlock(eventBlock, onChunk);
+      const isDone = consumeSseEventBlock(eventBlock, onChunk, (meta) => {
+        streamMeta = meta;
+      });
       if (isDone) {
-        return;
+        return streamMeta;
       }
     }
   }
+
+  return streamMeta;
 }

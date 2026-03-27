@@ -101,7 +101,7 @@ POST /api/chat/stream
 Content-Type: application/json
 ```
 
-The server responds as `text/event-stream` and emits `data: <chunk>` events followed by `data: [DONE]`.
+The server responds as `text/event-stream` and emits `data: <chunk>` events, then an `event: meta` JSON payload with the persisted `conversationId` and response metadata, followed by `data: [DONE]`.
 
 ### Auth
 

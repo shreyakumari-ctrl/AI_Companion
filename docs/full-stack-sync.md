@@ -52,6 +52,7 @@ Same request body as `/api/chat`.
 Response is `text/event-stream`:
 
 - `data: <single character or escaped newline chunk>`
+- `event: meta` with a JSON payload containing `conversationId`, `provider`, `model`, `memoryCount`, `cacheHit`, `context`, and `timestamp`
 - `data: [DONE]`
 - `data: [ERROR]`
 

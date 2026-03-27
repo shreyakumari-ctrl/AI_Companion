@@ -37,6 +37,8 @@ async function readSse(response) {
   let sawDone = false;
   let eventCount = 0;
   let singleCharacterEvents = 0;
+  let currentEvent = "message";
+  let meta = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -55,6 +57,11 @@ async function readSse(response) {
         continue;
       }
 
+      if (trimmed.startsWith("event: ")) {
+        currentEvent = trimmed.slice("event: ".length);
+        continue;
+      }
+
       if (!trimmed.startsWith("data: ")) {
         continue;
       }
@@ -68,6 +75,12 @@ async function readSse(response) {
 
       if (data === "[ERROR]") {
         throw new Error("SSE stream returned [ERROR].");
+      }
+
+      if (currentEvent === "meta") {
+        meta = JSON.parse(data);
+        currentEvent = "message";
+        continue;
       }
 
       const decodedChunk = data.replace(/\\n/g, "\n");
@@ -85,6 +98,7 @@ async function readSse(response) {
     sawDone,
     eventCount,
     singleCharacterEvents,
+    meta,
   };
 }
 
@@ -244,6 +258,10 @@ async function run() {
       assert(
         streamed.singleCharacterEvents >= Math.floor(streamed.eventCount * 0.9),
         "Streaming endpoint should emit character-sized chunks for nearly all events.",
+      );
+      assert(
+        streamed.meta && streamed.meta.conversationId === firstChat.json.conversationId,
+        "Streaming endpoint should emit metadata with the active conversationId.",
       );
 
       const invalidChatResponse = await fetch("http://127.0.0.1:5011/api/chat", {

@@ -80,6 +80,8 @@ export default function ChatExperience({
   const markFailed = useChatStore((state) => state.markFailed);
   const removeMessage = useChatStore((state) => state.removeMessage);
   const pushToast = useChatStore((state) => state.pushToast);
+  const conversationId = useChatStore((state) => state.conversationId);
+  const setConversationId = useChatStore((state) => state.setConversationId);
 
   const [input, setInput] = useState("");
   const [personality, setPersonality] = useState<PersonalityPreset>("Friendly");
@@ -283,10 +285,20 @@ export default function ChatExperience({
     let receivedChunk = false;
 
     try {
-      await sendMessageStream(text, personality, history, (chunk) => {
-        receivedChunk = true;
-        queueSmoothChunk(aiMessageId, chunk);
-      });
+      const streamMeta = await sendMessageStream(
+        text,
+        personality,
+        history,
+        (chunk) => {
+          receivedChunk = true;
+          queueSmoothChunk(aiMessageId, chunk);
+        },
+        conversationId,
+      );
+
+      if (streamMeta?.conversationId) {
+        setConversationId(streamMeta.conversationId);
+      }
 
       if (receivedChunk) {
         await finishSmoothStream(aiMessageId);
@@ -398,8 +410,9 @@ export default function ChatExperience({
                 </h2>
                 <p className="chat-blank__copy">
                   Ask for advice, drop a messy thought, or paste markdown. Clidy now
-                  streams replies with a smoother pace and formats completed AI
-                  messages cleanly.
+                  streams replies with a smoother pace, keeps the same
+                  conversation context alive across turns, and formats completed
+                  AI messages cleanly.
                 </p>
                 <div className="chat-blank__prompts">
                   <button
