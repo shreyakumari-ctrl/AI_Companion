@@ -94,6 +94,16 @@ Response is `text/event-stream`:
 
 `GET /api/auth/me`
 
+`PATCH /api/auth/profile`
+
+```json
+{
+  "name": "string | null | undefined",
+  "tonePreference": "string | undefined",
+  "mood": "string | undefined"
+}
+```
+
 Header:
 
 ```http
@@ -110,6 +120,7 @@ Authorization: Bearer <accessToken>
   "model": "string | null",
   "conversationId": "string",
   "memoryCount": "number",
+  "cacheHit": "boolean",
   "context": {
     "userId": "string | null",
     "tonePreference": "string",
@@ -136,6 +147,34 @@ Auth success response:
   "refreshTokenExpiresInDays": "number"
 }
 ```
+
+Conversation list response:
+
+```json
+{
+  "conversations": [
+    {
+      "id": "string",
+      "title": "string | null",
+      "updatedAt": "ISO-8601 string",
+      "createdAt": "ISO-8601 string",
+      "messageCount": "number",
+      "lastMessage": {
+        "role": "string",
+        "content": "string",
+        "createdAt": "ISO-8601 string",
+        "provider": "string | null"
+      }
+    }
+  ]
+}
+```
+
+Conversation context routes:
+
+- `GET /api/conversations`
+- `GET /api/conversations/:conversationId`
+- `GET /api/conversations/:conversationId/messages`
 
 Legacy compatibility:
 
@@ -199,4 +238,5 @@ Current server-side models:
 - Use `tonePreference` and `mood` exactly as written.
 - Keep `timestamp` in ISO format.
 - Use `provider` to indicate `gemini` or `fallback`.
+- Use `cacheHit` to tell whether a non-streaming reply came from the backend cache.
 - Use `Authorization: Bearer <accessToken>` for authenticated requests.

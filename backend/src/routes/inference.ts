@@ -39,6 +39,7 @@ router.post(
       res.setHeader("x-conversation-id", result.conversationId);
       res.setHeader("x-llm-provider", result.provider);
       res.setHeader("x-llm-model", result.model ?? "");
+      res.setHeader("x-response-cache", result.cacheHit ? "hit" : "miss");
 
       return res.json({
         reply: result.reply,
@@ -48,6 +49,7 @@ router.post(
         timestamp: new Date().toISOString(),
         context: result.context,
         memoryCount: result.memoryCount,
+        cacheHit: result.cacheHit,
       });
     } catch (err) {
       return next(err);

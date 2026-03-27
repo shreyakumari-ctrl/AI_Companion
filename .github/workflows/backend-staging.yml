@@ -1,0 +1,57 @@
+name: Backend Staging Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "backend/**"
+      - "docker-compose.staging.yml"
+      - ".github/workflows/backend-staging.yml"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  stage-backend:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build staging image
+        run: docker build -f backend/Dockerfile -t clidy-backend:staging .
+
+      - name: Boot staging preview
+        run: |
+          docker run -d --name clidy-backend-preview \
+            -e PORT=5000 \
+            -e FRONTEND_URL=http://localhost:3000 \
+            -e DATABASE_URL=file:./prisma/staging.db \
+            -e GEMINI_MODEL=gemini-2.5-flash \
+            -e CACHE_TTL_SECONDS=120 \
+            -e CACHE_MAX_ENTRIES=400 \
+            -e JWT_ACCESS_SECRET=staging-access-secret \
+            -e JWT_REFRESH_SECRET=staging-refresh-secret \
+            -p 5050:5000 \
+            clidy-backend:staging
+
+      - name: Wait for health check
+        run: |
+          for i in {1..20}; do
+            if curl --silent --fail http://127.0.0.1:5050/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs clidy-backend-preview
+          exit 1
+
+      - name: Show preview logs
+        if: always()
+        run: docker logs clidy-backend-preview
+
+      - name: Stop preview container
+        if: always()
+        run: docker rm -f clidy-backend-preview || true

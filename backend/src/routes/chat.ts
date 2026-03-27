@@ -25,6 +25,11 @@ async function handleChatRequest(
       (req as AuthenticatedRequest).auth,
     );
 
+    res.setHeader("x-conversation-id", result.conversationId);
+    res.setHeader("x-llm-provider", result.provider);
+    res.setHeader("x-llm-model", result.model ?? "");
+    res.setHeader("x-response-cache", result.cacheHit ? "hit" : "miss");
+
     return res.status(200).json({
       reply: result.reply,
       timestamp: new Date().toISOString(),
@@ -33,6 +38,7 @@ async function handleChatRequest(
       context: result.context,
       conversationId: result.conversationId,
       memoryCount: result.memoryCount,
+      cacheHit: result.cacheHit,
     });
   } catch (error) {
     return next(error);
