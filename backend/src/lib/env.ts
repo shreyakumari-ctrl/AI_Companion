@@ -26,6 +26,8 @@ const envSchema = z.object({
     .optional(),
   JWT_ACCESS_TTL_MINUTES: z.coerce.number().int().positive().default(15),
   JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(7),
+  CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(60),
+  CACHE_MAX_ENTRIES: z.coerce.number().int().positive().default(200),
 });
 
 export const env = envSchema.parse({
@@ -42,4 +44,6 @@ export const env = envSchema.parse({
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
   JWT_ACCESS_TTL_MINUTES: process.env.JWT_ACCESS_TTL_MINUTES,
   JWT_REFRESH_TTL_DAYS: process.env.JWT_REFRESH_TTL_DAYS,
+  CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS,
+  CACHE_MAX_ENTRIES: process.env.CACHE_MAX_ENTRIES,
 });

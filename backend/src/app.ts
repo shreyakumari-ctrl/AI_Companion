@@ -7,6 +7,7 @@ import { env } from "./lib/env";
 import { HttpError } from "./lib/http-error";
 import authRouter from "./routes/auth";
 import chatRouter from "./routes/chat";
+import conversationsRouter from "./routes/conversations";
 import inferenceRouter from "./routes/inference";
 
 const app = express();
@@ -44,7 +45,12 @@ function isAllowedOrigin(origin: string) {
 app.use(
   cors({
     credentials: true,
-    exposedHeaders: ["x-conversation-id", "x-llm-provider", "x-llm-model"],
+    exposedHeaders: [
+      "x-conversation-id",
+      "x-llm-provider",
+      "x-llm-model",
+      "x-response-cache",
+    ],
     allowedHeaders: ["Content-Type", "Authorization"],
     origin(origin, callback) {
       if (!origin || isAllowedOrigin(origin)) {
@@ -77,6 +83,7 @@ app.get("/status", (_req, res) => {
 app.use("/chat", chatRouter);
 app.use("/api", inferenceRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/conversations", conversationsRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof Error && error.message.includes("allowed by CORS")) {

@@ -26,6 +26,22 @@ const loginSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
+const profileSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).nullable().optional(),
+    tonePreference: z.string().trim().min(1).max(60).optional(),
+    mood: z.string().trim().min(1).max(60).optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.name !== undefined ||
+      payload.tonePreference !== undefined ||
+      payload.mood !== undefined,
+    {
+      message: "At least one profile field must be provided.",
+    },
+  );
+
 router.post("/register", async (req, res, next) => {
   try {
     const payload = registerSchema.parse(req.body);
@@ -152,6 +168,39 @@ router.get("/me", optionalAuth, requireAuth, async (req, res, next) => {
         error: "User not found.",
       });
     }
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        tonePreference: user.tonePreference,
+        mood: user.mood,
+      },
+      sessionId: auth.sessionId,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/profile", optionalAuth, requireAuth, async (req, res, next) => {
+  try {
+    const auth = (req as AuthenticatedRequest).auth!;
+    const payload = profileSchema.parse(req.body);
+
+    const user = await prisma.user.update({
+      where: {
+        id: auth.userId,
+      },
+      data: {
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.tonePreference !== undefined
+          ? { tonePreference: payload.tonePreference }
+          : {}),
+        ...(payload.mood !== undefined ? { mood: payload.mood } : {}),
+      },
+    });
 
     return res.status(200).json({
       user: {

@@ -143,6 +143,50 @@ async function run() {
         "CORS rejection should explain the reason.",
       );
 
+      const cachedMissResponse = await fetch("http://127.0.0.1:5011/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "Cache this exact prompt for a quick replay.",
+        }),
+      });
+      const cachedMiss = await readJson(cachedMissResponse);
+      assert(cachedMissResponse.status === 200, "First cacheable /api/chat request should return 200.");
+      assert(
+        cachedMissResponse.headers.get("x-response-cache") === "miss",
+        "First cacheable /api/chat request should be a cache miss.",
+      );
+      assert(
+        cachedMiss.json && cachedMiss.json.cacheHit === false,
+        "First cacheable /api/chat request should report cacheHit false.",
+      );
+
+      const cachedHitResponse = await fetch("http://127.0.0.1:5011/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "Cache this exact prompt for a quick replay.",
+        }),
+      });
+      const cachedHit = await readJson(cachedHitResponse);
+      assert(cachedHitResponse.status === 200, "Repeated /api/chat request should return 200.");
+      assert(
+        cachedHitResponse.headers.get("x-response-cache") === "hit",
+        "Repeated /api/chat request should be served from cache.",
+      );
+      assert(
+        cachedHit.json && cachedHit.json.cacheHit === true,
+        "Repeated /api/chat request should report cacheHit true.",
+      );
+      assert(
+        cachedHit.json && cachedHit.json.reply === cachedMiss.json.reply,
+        "Cached response should return the same reply body.",
+      );
+
       const firstChatResponse = await fetch("http://127.0.0.1:5011/api/chat", {
         method: "POST",
         headers: {
@@ -278,6 +322,115 @@ async function run() {
       assert(meResponse.status === 200, "GET /api/auth/me should work with a valid bearer token.");
       assert(me.json && me.json.user.email === email, "GET /api/auth/me should return the authenticated user.");
 
+      const profileResponse = await fetch("http://127.0.0.1:5011/api/auth/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${login.json.accessToken}`,
+        },
+        body: JSON.stringify({
+          tonePreference: "grounded",
+          mood: "focused",
+        }),
+      });
+      const profile = await readJson(profileResponse);
+      assert(profileResponse.status === 200, "PATCH /api/auth/profile should update the authenticated user.");
+      assert(
+        profile.json && profile.json.user.tonePreference === "grounded",
+        "PATCH /api/auth/profile should persist tonePreference.",
+      );
+      assert(
+        profile.json && profile.json.user.mood === "focused",
+        "PATCH /api/auth/profile should persist mood.",
+      );
+
+      const conversationsUnauthedResponse = await fetch("http://127.0.0.1:5011/api/conversations");
+      assert(
+        conversationsUnauthedResponse.status === 401,
+        "GET /api/conversations should require authentication.",
+      );
+
+      const authedChatResponse = await fetch("http://127.0.0.1:5011/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${login.json.accessToken}`,
+        },
+        body: JSON.stringify({
+          message: "Create an authenticated conversation for listing.",
+        }),
+      });
+      const authedChat = await readJson(authedChatResponse);
+      assert(
+        authedChatResponse.status === 200,
+        "Authenticated /api/chat request should return 200.",
+      );
+      assert(
+        authedChat.json && typeof authedChat.json.conversationId === "string",
+        "Authenticated /api/chat request should return a conversationId.",
+      );
+
+      const conversationsResponse = await fetch("http://127.0.0.1:5011/api/conversations", {
+        headers: {
+          Authorization: `Bearer ${login.json.accessToken}`,
+        },
+      });
+      const conversations = await readJson(conversationsResponse);
+      assert(
+        conversationsResponse.status === 200,
+        "GET /api/conversations should return 200 for authenticated users.",
+      );
+      assert(
+        conversations.json &&
+          Array.isArray(conversations.json.conversations) &&
+          conversations.json.conversations.some(
+            (conversation) => conversation.id === authedChat.json.conversationId,
+          ),
+        "GET /api/conversations should list the authenticated user's conversation.",
+      );
+
+      const contextResponse = await fetch(
+        `http://127.0.0.1:5011/api/conversations/${authedChat.json.conversationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${login.json.accessToken}`,
+          },
+        },
+      );
+      const context = await readJson(contextResponse);
+      assert(
+        contextResponse.status === 200,
+        "GET /api/conversations/:conversationId should return 200.",
+      );
+      assert(
+        context.json && context.json.conversation.id === authedChat.json.conversationId,
+        "Conversation context endpoint should return the requested conversation.",
+      );
+      assert(
+        context.json && context.json.memoryCount >= 2,
+        "Conversation context endpoint should expose conversation memory turns.",
+      );
+
+      const messagesResponse = await fetch(
+        `http://127.0.0.1:5011/api/conversations/${authedChat.json.conversationId}/messages`,
+        {
+          headers: {
+            Authorization: `Bearer ${login.json.accessToken}`,
+          },
+        },
+      );
+      const messages = await readJson(messagesResponse);
+      assert(
+        messagesResponse.status === 200,
+        "GET /api/conversations/:conversationId/messages should return 200.",
+      );
+      assert(
+        messages.json &&
+          Array.isArray(messages.json.messages) &&
+          messages.json.messages.length >= 2,
+        "Conversation messages endpoint should return the stored conversation turns.",
+      );
+
       const refreshResponse = await fetch("http://127.0.0.1:5011/api/auth/refresh", {
         method: "POST",
         headers: {
@@ -350,10 +503,12 @@ async function run() {
       console.log("VERIFY cors ok");
       console.log("VERIFY validation ok");
       console.log("VERIFY api route ok");
+      console.log("VERIFY cache ok");
       console.log("VERIFY memory ok");
       console.log("VERIFY streaming ok");
       console.log("VERIFY legacy route ok");
       console.log("VERIFY auth ok");
+      console.log("VERIFY conversations ok");
       console.log("VERIFY persistence ok");
       console.log(`VERIFY provider ${firstChat.json.provider}`);
     } catch (error) {
