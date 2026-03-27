@@ -217,7 +217,7 @@ export default function LandingPage() {
           <a href="#features">Features</a>
           <Link href="/chat">Chat</Link>
         </div>
-        <p className="footer-copy">© 2026 Clidy AI. Built for your late-night ideas.</p>
+        <p className="footer-copy">© 2025 Clidy AI. Made with 💜</p>
       </footer>
     </div>
   );
