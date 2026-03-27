@@ -339,18 +339,20 @@ export async function executeChat(
       if (!reply) {
         reply = buildFallbackReply(params.message);
         provider = "fallback" as ProviderName;
-      } else {
-        responseCache.set(prepared.cacheKey, {
-          reply,
-          provider,
-          model: modelForProvider(provider),
-        });
       }
     } catch (error) {
       console.error("Chat generation failed. Falling back to offline reply.", error);
       reply = buildFallbackReply(params.message);
       provider = "fallback" as ProviderName;
     }
+  }
+
+  if (!cacheHit && reply.trim()) {
+    responseCache.set(prepared.cacheKey, {
+      reply,
+      provider,
+      model: modelForProvider(provider),
+    });
   }
 
   const conversationId = await persistConversationTurn({
@@ -403,14 +405,6 @@ export async function streamChat(
         reply += chunk;
         emitCharacters(chunk, onChunk);
       });
-
-      if (reply.trim()) {
-        responseCache.set(prepared.cacheKey, {
-          reply,
-          provider,
-          model: modelForProvider(provider),
-        });
-      }
     } catch (error) {
       console.error("Streaming generation failed. Falling back to offline reply.", error);
 
@@ -425,6 +419,14 @@ export async function streamChat(
   if (!reply.trim()) {
     reply = buildFallbackReply(params.message);
     provider = "fallback" as ProviderName;
+  }
+
+  if (!cacheHit && reply.trim()) {
+    responseCache.set(prepared.cacheKey, {
+      reply,
+      provider,
+      model: modelForProvider(provider),
+    });
   }
 
   const conversationId = await persistConversationTurn({
