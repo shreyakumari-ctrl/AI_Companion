@@ -1,16 +1,15 @@
 "use client";
 
 import React from "react";
-
-export type Personality = "Friendly" | "Funny" | "Motivational";
+import type { PersonalityPreset } from "@/lib/chatPersonality";
 
 interface PersonalitySelectorProps {
-  selected: Personality;
-  onSelect: (p: Personality) => void;
+  selected: PersonalityPreset;
+  onSelect: (p: PersonalityPreset) => void;
   disabled?: boolean;
 }
 
-const personalities: { label: Personality; emoji: string; color: string }[] = [
+const personalities: { label: PersonalityPreset; emoji: string; color: string }[] = [
   { label: "Friendly", emoji: "😊", color: "#eef2ff" },
   { label: "Funny", emoji: "😄", color: "#fdf2f8" },
   { label: "Motivational", emoji: "🚀", color: "#f0fdf4" },
@@ -39,3 +38,5 @@ export default function PersonalitySelector({
     </div>
   );
 }
+
+export type Personality = PersonalityPreset;
