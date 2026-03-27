@@ -392,7 +392,7 @@ export default function ChatExperience({
 
         <PersonalitySelector
           selected={personality}
-          onSelect={setPersonality}
+          onSelect={(id) => setPersonality(id as PersonalityPreset)}
           disabled={isStreaming || showOnboarding}
         />
 
