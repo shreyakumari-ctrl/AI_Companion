@@ -19,10 +19,11 @@ interface ChatStore {
   messages: ChatMessage[];
   isStreaming: boolean;
   toasts: Toast[];
-  addMessage: (msg: Omit<ChatMessage, "id" | "timestamp">) => void;
+  addMessage: (msg: Omit<ChatMessage, "id" | "timestamp">) => string;
   appendChunk: (id: string, chunk: string) => void;
   markComplete: (id: string) => void;
   markFailed: (id: string) => void;
+  removeMessage: (id: string) => void;
   clearHistory: () => void;
   pushToast: (toast: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
@@ -33,13 +34,15 @@ export const useChatStore = create<ChatStore>((set) => ({
   isStreaming: false,
   toasts: [],
 
-  addMessage: (msg) =>
+  addMessage: (msg) => {
+    const id = nanoid();
+
     set((state) => ({
       messages: [
         ...state.messages,
         {
           ...msg,
-          id: nanoid(),
+          id,
           timestamp: Date.now(),
         },
       ],
@@ -48,7 +51,10 @@ export const useChatStore = create<ChatStore>((set) => ({
         (msg.status === "streaming" || msg.status === "pending")
           ? true
           : state.isStreaming,
-    })),
+    }));
+
+    return id;
+  },
 
   appendChunk: (id, chunk) =>
     set((state) => ({
@@ -72,6 +78,12 @@ export const useChatStore = create<ChatStore>((set) => ({
       messages: state.messages.map((m) =>
         m.id === id ? { ...m, status: "failed" } : m
       ),
+      isStreaming: false,
+    })),
+
+  removeMessage: (id) =>
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== id),
       isStreaming: false,
     })),
 
