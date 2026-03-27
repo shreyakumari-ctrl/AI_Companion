@@ -8,7 +8,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - backend-staging-data:/app/backend/prisma
+      - backend-staging-data:/app/backend/prisma/data
 
 volumes:
   backend-staging-data:

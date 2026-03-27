@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "db:generate": "npm run prisma:generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:cli": "prisma migrate dev --name init",
     "db:migrate": "node scripts/apply-local-schema.js",

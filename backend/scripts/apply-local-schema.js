@@ -1,9 +1,41 @@
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
+const dotenv = require("dotenv");
 
 const projectRoot = path.resolve(__dirname, "..");
-const databasePath = path.join(projectRoot, "prisma", "dev.db");
+const repoRoot = path.resolve(projectRoot, "..");
+const envFiles = [
+  path.join(repoRoot, ".env"),
+  path.join(projectRoot, ".env"),
+  path.join(repoRoot, ".env.local"),
+  path.join(projectRoot, ".env.local"),
+];
+
+for (const envFile of envFiles) {
+  if (!fs.existsSync(envFile)) {
+    continue;
+  }
+
+  dotenv.config({
+    path: envFile,
+    override: true,
+  });
+}
+
+const rawDatabaseUrl = (process.env.DATABASE_URL || "file:./prisma/dev.db")
+  .trim()
+  .replace(/^"(.*)"$/, "$1");
+
+if (!rawDatabaseUrl.startsWith("file:")) {
+  throw new Error(
+    `Local migration runner only supports SQLite file DATABASE_URL values. Received: ${rawDatabaseUrl}`,
+  );
+}
+
+const sqliteRelativePath = rawDatabaseUrl.slice("file:".length);
+const databasePath = path.resolve(projectRoot, sqliteRelativePath);
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 const database = new Database(databasePath);
 
 const migrationsRoot = path.join(projectRoot, "prisma", "migrations");

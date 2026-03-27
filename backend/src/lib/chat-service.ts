@@ -326,31 +326,33 @@ export async function executeChat(
   let provider = prepared.provider;
   let cacheHit = false;
 
-  if (!prepared.adapter.isAvailable()) {
-    reply = buildFallbackReply(params.message);
-    provider = "fallback" as ProviderName;
-  } else if (cached) {
+  if (cached) {
     reply = cached.reply;
     provider = cached.provider as ProviderName;
     cacheHit = true;
+  } else if (!prepared.adapter.isAvailable()) {
+    reply = buildFallbackReply(params.message);
+    provider = "fallback" as ProviderName;
   } else {
     try {
       reply = (await prepared.adapter.generate(prepared.inferenceRequest)).trim();
       if (!reply) {
         reply = buildFallbackReply(params.message);
         provider = "fallback" as ProviderName;
-      } else {
-        responseCache.set(prepared.cacheKey, {
-          reply,
-          provider,
-          model: modelForProvider(provider),
-        });
       }
     } catch (error) {
       console.error("Chat generation failed. Falling back to offline reply.", error);
       reply = buildFallbackReply(params.message);
       provider = "fallback" as ProviderName;
     }
+  }
+
+  if (!cacheHit && reply.trim()) {
+    responseCache.set(prepared.cacheKey, {
+      reply,
+      provider,
+      model: modelForProvider(provider),
+    });
   }
 
   const conversationId = await persistConversationTurn({
@@ -384,14 +386,14 @@ export async function streamChat(
   let reply = "";
   let cacheHit = false;
 
-  if (!prepared.adapter.isAvailable()) {
-    reply = buildFallbackReply(params.message);
-    provider = "fallback" as ProviderName;
-    emitCharacters(reply, onChunk);
-  } else if (cached) {
+  if (cached) {
     reply = cached.reply;
     provider = cached.provider as ProviderName;
     cacheHit = true;
+    emitCharacters(reply, onChunk);
+  } else if (!prepared.adapter.isAvailable()) {
+    reply = buildFallbackReply(params.message);
+    provider = "fallback" as ProviderName;
     emitCharacters(reply, onChunk);
   } else {
     try {
@@ -403,14 +405,6 @@ export async function streamChat(
         reply += chunk;
         emitCharacters(chunk, onChunk);
       });
-
-      if (reply.trim()) {
-        responseCache.set(prepared.cacheKey, {
-          reply,
-          provider,
-          model: modelForProvider(provider),
-        });
-      }
     } catch (error) {
       console.error("Streaming generation failed. Falling back to offline reply.", error);
 
@@ -425,6 +419,14 @@ export async function streamChat(
   if (!reply.trim()) {
     reply = buildFallbackReply(params.message);
     provider = "fallback" as ProviderName;
+  }
+
+  if (!cacheHit && reply.trim()) {
+    responseCache.set(prepared.cacheKey, {
+      reply,
+      provider,
+      model: modelForProvider(provider),
+    });
   }
 
   const conversationId = await persistConversationTurn({

@@ -19,6 +19,11 @@ on:
 jobs:
   verify-backend:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./prisma/dev.db
+      FRONTEND_URL: http://localhost:3000
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
 
     steps:
       - name: Checkout
