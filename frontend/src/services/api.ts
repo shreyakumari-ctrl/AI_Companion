@@ -1,35 +1,73 @@
-import { PersonalityPreset } from "../lib/chatPersonality";
+import { getPersonalityPayload, type PersonalityPreset } from "@/lib/chatPersonality";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000";
 
 export interface MessageTurn {
   sender: "user" | "ai";
   text: string;
 }
 
-export interface ApiError extends Error {
-  status?: number;
+export interface ApiError {
+  status: number;
+  message: string;
 }
 
-function normalizeApiError(status: number, rawMessage: string): ApiError {
-  const message = rawMessage?.toString().trim() || "Oops 😅 something went wrong.";
-  const error = new Error(message) as ApiError;
-  error.status = status;
-  return error;
+export interface ChatStreamMeta {
+  conversationId: string;
+  provider: string;
+  model: string | null;
+  memoryCount: number;
+  cacheHit: boolean;
+  context: {
+    userId: string | null;
+    tonePreference: string;
+    mood: string;
+  };
+  timestamp: string;
+}
+
+function normalizeApiError(status: number, rawMessage: string) {
+  const message = rawMessage.trim();
+
+  if (status === 429 || /quota|rate limit|resource_exhausted/i.test(message)) {
+    return {
+      status,
+      message: "Clidy hit a rate limit. Give it a minute and try again.",
+    } satisfies ApiError;
+  }
+
+  if (status === 503 || /unavailable|network|connection|server/i.test(message)) {
+    return {
+      status,
+      message: "Clidy can't reach the server right now. Check the backend and try again.",
+    } satisfies ApiError;
+  }
+
+  return {
+    status,
+    message: message || "Oops, something went wrong. Please try again.",
+  } satisfies ApiError;
 }
 
 async function parseApiError(response: Response): Promise<ApiError> {
-  const text = await response.text();
+  const errorText = await response.text();
 
   try {
-    const json = JSON.parse(text);
-    return normalizeApiError(response.status, json.error || json.message || text);
+    const errorJson = JSON.parse(errorText);
+    return normalizeApiError(
+      response.status,
+      errorJson.error ?? errorJson.message ?? errorText,
+    );
   } catch {
-    return normalizeApiError(response.status, text);
+    return normalizeApiError(response.status, errorText);
   }
 }
 
-function consumeSseEventBlock(eventBlock: string, onChunk: (chunk: string) => void): boolean {
+function consumeSseEventBlock(
+  eventBlock: string,
+  onChunk: (chunk: string) => void,
+  onMeta: (meta: ChatStreamMeta) => void,
+) {
   let eventType = "message";
   const dataLines: string[] = [];
 
@@ -69,6 +107,12 @@ function consumeSseEventBlock(eventBlock: string, onChunk: (chunk: string) => vo
   }
 
   if (eventType === "meta") {
+    try {
+      onMeta(JSON.parse(data) as ChatStreamMeta);
+    } catch {
+      throw normalizeApiError(500, "The stream metadata payload was malformed.");
+    }
+
     return false;
   }
 
@@ -81,19 +125,23 @@ export async function sendMessageStream(
   personality: PersonalityPreset,
   history: MessageTurn[],
   onChunk: (chunk: string) => void,
-): Promise<void> {
+  conversationId?: string | null,
+): Promise<ChatStreamMeta | null> {
   let response: Response;
+  let streamMeta: ChatStreamMeta | null = null;
+
   try {
     response = await fetch(`${API_URL}/api/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        personality,
-        history: history.slice(-5),
+        history: history.slice(-12),
+        conversationId,
+        ...getPersonalityPayload(personality),
       }),
     });
-  } catch (err) {
+  } catch {
     throw normalizeApiError(503, "Network request failed.");
   }
 
@@ -102,7 +150,7 @@ export async function sendMessageStream(
   }
 
   if (!response.body) {
-    throw normalizeApiError(500, "No response body");
+    throw normalizeApiError(500, "No response body was returned.");
   }
 
   const reader = response.body.getReader();
@@ -111,17 +159,23 @@ export async function sendMessageStream(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
 
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
     const eventBlocks = buffer.split("\n\n");
     buffer = eventBlocks.pop() ?? "";
 
     for (const eventBlock of eventBlocks) {
-      const finished = consumeSseEventBlock(eventBlock, onChunk);
-      if (finished) {
-        return;
+      const isDone = consumeSseEventBlock(eventBlock, onChunk, (meta) => {
+        streamMeta = meta;
+      });
+      if (isDone) {
+        return streamMeta;
       }
     }
   }
+
+  return streamMeta;
 }

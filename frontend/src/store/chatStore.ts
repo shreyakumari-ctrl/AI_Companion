@@ -19,12 +19,14 @@ interface ChatStore {
   messages: ChatMessage[];
   isStreaming: boolean;
   toasts: Toast[];
+  conversationId: string | null;
   addMessage: (msg: Omit<ChatMessage, "id" | "timestamp">) => string;
   appendChunk: (id: string, chunk: string) => void;
   markComplete: (id: string) => void;
   markFailed: (id: string) => void;
   removeMessage: (id: string) => void;
   clearHistory: () => void;
+  setConversationId: (conversationId: string | null) => void;
   pushToast: (toast: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
 }
@@ -33,6 +35,7 @@ export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
   isStreaming: false,
   toasts: [],
+  conversationId: null,
 
   addMessage: (msg) => {
     const id = nanoid();
@@ -91,6 +94,12 @@ export const useChatStore = create<ChatStore>((set) => ({
     set({
       messages: [],
       isStreaming: false,
+      conversationId: null,
+    }),
+
+  setConversationId: (conversationId) =>
+    set({
+      conversationId,
     }),
 
   pushToast: (toast) =>
