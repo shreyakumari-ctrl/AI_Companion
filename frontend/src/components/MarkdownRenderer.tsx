@@ -1,53 +1,11 @@
-"use client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useState } from "react";
 import type { Components } from "react-markdown";
+import CodeBlock from "./CodeBlock";
 
 interface Props {
   content: string;
-}
-
-function CodeBlock({
-  language,
-  children,
-}: {
-  language: string;
-  children: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(children);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div style={{ position: "relative" }}>
-      <button
-        onClick={handleCopy}
-        aria-label="Copy code"
-        style={{
-          position: "absolute",
-          top: "0.5rem",
-          right: "0.5rem",
-          zIndex: 1,
-          padding: "0.25rem 0.5rem",
-          fontSize: "0.75rem",
-          cursor: "pointer",
-        }}
-      >
-        {copied ? "Copied!" : "Copy"}
-      </button>
-      <SyntaxHighlighter language={language || "text"} style={oneDark}>
-        {children}
-      </SyntaxHighlighter>
-    </div>
-  );
 }
 
 export default function MarkdownRenderer({ content }: Props) {

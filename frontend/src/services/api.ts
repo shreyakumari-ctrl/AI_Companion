@@ -1,58 +1,35 @@
-import { getPersonalityPayload, type PersonalityPreset } from "@/lib/chatPersonality";
+import { PersonalityPreset } from "../lib/chatPersonality";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export interface MessageTurn {
   sender: "user" | "ai";
   text: string;
 }
 
-export interface ApiError {
-  status: number;
-  message: string;
+export interface ApiError extends Error {
+  status?: number;
 }
 
-function normalizeApiError(status: number, rawMessage: string) {
-  const message = rawMessage.trim();
-
-  if (status === 429 || /quota|rate limit|resource_exhausted/i.test(message)) {
-    return {
-      status,
-      message: "Clidy hit a rate limit. Give it a minute and try again.",
-    } satisfies ApiError;
-  }
-
-  if (status === 503 || /unavailable|network|connection|server/i.test(message)) {
-    return {
-      status,
-      message: "Clidy can't reach the server right now. Check the backend and try again.",
-    } satisfies ApiError;
-  }
-
-  return {
-    status,
-    message: message || "Oops, something went wrong. Please try again.",
-  } satisfies ApiError;
+function normalizeApiError(status: number, rawMessage: string): ApiError {
+  const message = rawMessage?.toString().trim() || "Oops 😅 something went wrong.";
+  const error = new Error(message) as ApiError;
+  error.status = status;
+  return error;
 }
 
 async function parseApiError(response: Response): Promise<ApiError> {
-  const errorText = await response.text();
+  const text = await response.text();
 
   try {
-    const errorJson = JSON.parse(errorText);
-    return normalizeApiError(
-      response.status,
-      errorJson.error ?? errorJson.message ?? errorText,
-    );
+    const json = JSON.parse(text);
+    return normalizeApiError(response.status, json.error || json.message || text);
   } catch {
-    return normalizeApiError(response.status, errorText);
+    return normalizeApiError(response.status, text);
   }
 }
 
-function consumeSseEventBlock(
-  eventBlock: string,
-  onChunk: (chunk: string) => void,
-) {
+function consumeSseEventBlock(eventBlock: string, onChunk: (chunk: string) => void): boolean {
   let eventType = "message";
   const dataLines: string[] = [];
 
@@ -106,18 +83,17 @@ export async function sendMessageStream(
   onChunk: (chunk: string) => void,
 ): Promise<void> {
   let response: Response;
-
   try {
     response = await fetch(`${API_URL}/api/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        history: history.slice(-12),
-        ...getPersonalityPayload(personality),
+        personality,
+        history: history.slice(-5),
       }),
     });
-  } catch {
+  } catch (err) {
     throw normalizeApiError(503, "Network request failed.");
   }
 
@@ -126,7 +102,7 @@ export async function sendMessageStream(
   }
 
   if (!response.body) {
-    throw normalizeApiError(500, "No response body was returned.");
+    throw normalizeApiError(500, "No response body");
   }
 
   const reader = response.body.getReader();
@@ -135,17 +111,15 @@ export async function sendMessageStream(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
+    if (done) break;
 
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
     const eventBlocks = buffer.split("\n\n");
     buffer = eventBlocks.pop() ?? "";
 
     for (const eventBlock of eventBlocks) {
-      const isDone = consumeSseEventBlock(eventBlock, onChunk);
-      if (isDone) {
+      const finished = consumeSseEventBlock(eventBlock, onChunk);
+      if (finished) {
         return;
       }
     }

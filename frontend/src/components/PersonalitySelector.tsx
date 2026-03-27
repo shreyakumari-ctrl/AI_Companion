@@ -1,42 +1,36 @@
 "use client";
 
 import React from "react";
-import type { PersonalityPreset } from "@/lib/chatPersonality";
+
+const personalities = [
+  { id: "Friendly", label: "Friendly", emoji: "😊" },
+  { id: "Funny", label: "Funny", emoji: "😄" },
+  { id: "Motivational", label: "Motivational", emoji: "🚀" },
+];
 
 interface PersonalitySelectorProps {
-  selected: PersonalityPreset;
-  onSelect: (p: PersonalityPreset) => void;
+  selected: string;
+  onSelect: (id: string) => void;
   disabled?: boolean;
 }
 
-const personalities: { label: PersonalityPreset; emoji: string; color: string }[] = [
-  { label: "Friendly", emoji: "😊", color: "#eef2ff" },
-  { label: "Funny", emoji: "😄", color: "#fdf2f8" },
-  { label: "Motivational", emoji: "🚀", color: "#f0fdf4" },
-];
-
-export default function PersonalitySelector({
-  selected,
-  onSelect,
-  disabled,
-}: PersonalitySelectorProps) {
+const PersonalitySelector = ({ selected, onSelect, disabled }: PersonalitySelectorProps) => {
   return (
-    <div className="personality-selector">
+    <div className="personality-tray">
       {personalities.map((p) => (
         <button
-          key={p.label}
-          onClick={() => onSelect(p.label)}
+          key={p.id}
+          className={`personality-btn ${selected === p.id ? "active" : ""}`}
+          onClick={() => onSelect(p.id)}
           disabled={disabled}
-          className={`personality-item ${selected === p.label ? "active" : ""}`}
-          style={{ backgroundColor: p.color }}
-          title={`${p.label} personality`}
+          type="button"
         >
           <span className="personality-emoji">{p.emoji}</span>
-          <span className="personality-label">{p.label}</span>
+          <span>{p.label}</span>
         </button>
       ))}
     </div>
   );
-}
+};
 
-export type Personality = PersonalityPreset;
+export default PersonalitySelector;

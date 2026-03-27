@@ -67,7 +67,7 @@ export default function OnboardingSlider({
             <>
               <PersonalitySelector
                 selected={personality}
-                onSelect={onPersonalityChange}
+                onSelect={(id) => onPersonalityChange(id as PersonalityPreset)}
               />
               <div className="onboarding-personality-card">
                 <h3>{personalityConfigs[personality].onboardingTitle}</h3>

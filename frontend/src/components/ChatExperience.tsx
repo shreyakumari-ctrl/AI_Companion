@@ -2,98 +2,35 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { sendMessageStream, MessageTurn, ApiError } from "@/services/api";
+import { sendMessageStream, MessageTurn } from "@/services/api";
 import PersonalitySelector from "@/components/PersonalitySelector";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import OnboardingSlider from "@/components/OnboardingSlider";
-import ToastContainer from "@/components/ToastContainer";
-import TypingIndicator from "@/components/TypingIndicator";
-import { useChatStore } from "@/store/chatStore";
+import MessageBubble from "@/components/MessageBubble";
 import {
   getWelcomeMessage,
   isPersonalityPreset,
   type PersonalityPreset,
 } from "@/lib/chatPersonality";
 
-type ErrorViewState = {
-  title: string;
-  copy: string;
-};
-
 type ChatExperienceProps = {
   variant?: "panel" | "immersive";
 };
 
-function takeNextDisplayToken(buffer: string, force = false) {
-  if (!buffer) {
-    return "";
-  }
-
-  if (buffer.startsWith("\n")) {
-    return "\n";
-  }
-
-  const leadingWhitespace = buffer.match(/^[ \t]+/);
-  if (leadingWhitespace) {
-    return leadingWhitespace[0];
-  }
-
-  const wordWithBoundary = buffer.match(/^[^\s]+(?:\s+|$)/);
-  if (wordWithBoundary) {
-    const token = wordWithBoundary[0];
-    if (/\s$/.test(token) || /[.,!?;:)\]]$/.test(token) || force) {
-      return token;
-    }
-  }
-
-  if (buffer.length >= 12) {
-    return buffer.slice(0, Math.min(4, buffer.length));
-  }
-
-  return force ? buffer : "";
-}
-
-function getStreamDelay(token: string) {
-  if (!token.trim()) {
-    return 12;
-  }
-
-  if (token.includes("\n")) {
-    return 44;
-  }
-
-  if (/[.,!?]$/.test(token.trim())) {
-    return 54;
-  }
-
-  return Math.min(42, Math.max(18, token.length * 6));
-}
-
 export default function ChatExperience({
   variant = "panel",
 }: ChatExperienceProps) {
-  const messages = useChatStore((state) => state.messages);
-  const isStreaming = useChatStore((state) => state.isStreaming);
-  const addMessage = useChatStore((state) => state.addMessage);
-  const appendChunk = useChatStore((state) => state.appendChunk);
-  const markComplete = useChatStore((state) => state.markComplete);
-  const markFailed = useChatStore((state) => state.markFailed);
-  const removeMessage = useChatStore((state) => state.removeMessage);
-  const pushToast = useChatStore((state) => state.pushToast);
-
+  // USING useState AS REQUESTED
+  const [messages, setMessages] = useState<MessageTurn[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [input, setInput] = useState("");
   const [personality, setPersonality] = useState<PersonalityPreset>("Friendly");
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [errorState, setErrorState] = useState<ErrorViewState | null>(null);
+  const [errorVisible, setErrorVisible] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const streamBufferRef = useRef("");
-  const streamTimerRef = useRef<number | null>(null);
-  const streamFinishedRef = useRef(false);
-  const streamMessageIdRef = useRef<string | null>(null);
-  const streamDrainResolverRef = useRef<(() => void) | null>(null);
 
   const isImmersive = variant === "immersive";
 
@@ -114,236 +51,112 @@ export default function ChatExperience({
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
-
+    if (!hasHydrated) return;
     window.localStorage.setItem("clidy-personality", personality);
   }, [hasHydrated, personality]);
 
   useEffect(() => {
-    if (!hasHydrated || showOnboarding || messages.length > 0) {
-      return;
-    }
+    if (!hasHydrated || showOnboarding || messages.length > 0) return;
 
-    addMessage({
-      sender: "ai",
-      text: getWelcomeMessage(personality),
-      status: "complete",
-    });
-  }, [addMessage, hasHydrated, messages.length, personality, showOnboarding]);
-
-  useEffect(() => {
-    return () => {
-      if (streamTimerRef.current !== null) {
-        window.clearTimeout(streamTimerRef.current);
-      }
-    };
-  }, []);
-
-  function resolveErrorState(apiError: ApiError): ErrorViewState {
-    if (apiError.status === 429 || /rate limit|quota/i.test(apiError.message)) {
-      return {
-        title: "Clidy hit a rate limit",
-        copy: "The backend is up, but the model is asking us to slow down for a moment. Give it a minute and retry.",
-      };
-    }
-
-    if (
-      apiError.status === 503 ||
-      /server|network|connection/i.test(apiError.message)
-    ) {
-      return {
-        title: "Connection got messy",
-        copy: "The chat couldn't reach the backend cleanly. Check the server, then send again.",
-      };
-    }
-
-    return {
-      title: "Something went sideways",
-      copy:
-        apiError.message || "The stream broke before Clidy could finish that thought.",
-    };
-  }
-
-  function settleQueuedStream() {
-    if (streamTimerRef.current !== null) {
-      window.clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-
-    streamBufferRef.current = "";
-    streamFinishedRef.current = false;
-    streamMessageIdRef.current = null;
-    streamDrainResolverRef.current?.();
-    streamDrainResolverRef.current = null;
-  }
-
-  function drainQueuedStream() {
-    const messageId = streamMessageIdRef.current;
-
-    if (!messageId) {
-      settleQueuedStream();
-      return;
-    }
-
-    const nextToken = takeNextDisplayToken(
-      streamBufferRef.current,
-      streamFinishedRef.current,
-    );
-
-    if (!nextToken) {
-      if (streamFinishedRef.current && !streamBufferRef.current) {
-        settleQueuedStream();
-        return;
-      }
-
-      streamTimerRef.current = window.setTimeout(drainQueuedStream, 16);
-      return;
-    }
-
-    streamBufferRef.current = streamBufferRef.current.slice(nextToken.length);
-    appendChunk(messageId, nextToken);
-
-    if (!streamBufferRef.current && streamFinishedRef.current) {
-      settleQueuedStream();
-      return;
-    }
-
-    streamTimerRef.current = window.setTimeout(
-      drainQueuedStream,
-      getStreamDelay(nextToken),
-    );
-  }
-
-  function queueSmoothChunk(messageId: string, chunk: string) {
-    streamMessageIdRef.current = messageId;
-    streamBufferRef.current += chunk;
-
-    if (streamTimerRef.current === null) {
-      drainQueuedStream();
-    }
-  }
-
-  function finishSmoothStream(messageId: string) {
-    streamMessageIdRef.current = messageId;
-    streamFinishedRef.current = true;
-
-    if (streamTimerRef.current === null) {
-      drainQueuedStream();
-    }
-
-    return new Promise<void>((resolve) => {
-      if (!streamBufferRef.current && streamTimerRef.current === null) {
-        settleQueuedStream();
-        resolve();
-        return;
-      }
-
-      streamDrainResolverRef.current = resolve;
-    });
-  }
-
-  function cancelSmoothStream() {
-    settleQueuedStream();
-  }
+    setMessages([
+      {
+        sender: "ai",
+        text: getWelcomeMessage(personality),
+      },
+    ]);
+  }, [hasHydrated, personality, showOnboarding, messages.length]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || isStreaming || showOnboarding) {
-      return;
-    }
+    if (!text || isStreaming || showOnboarding) return;
 
-    addMessage({
-      sender: "user",
-      text,
-      status: "complete",
-    });
-
-    const aiMessageId = addMessage({
-      sender: "ai",
-      text: "",
-      status: "pending",
-    });
-
+    const userMsg: MessageTurn = { sender: "user", text };
+    const newMessages = [...messages, userMsg];
+    
+    setMessages(newMessages);
     setInput("");
-    setErrorState(null);
+    setErrorVisible(false);
+    setIsStreaming(true);
 
-    const history: MessageTurn[] = messages
-      .filter(
-        (message) =>
-          message.text.trim().length > 0 && message.status !== "failed",
-      )
-      .map((message) => ({
-        sender: message.sender,
-        text: message.text,
-      }));
-
-    let receivedChunk = false;
+    // AI Placeholder
+    const aiMsgIndex = newMessages.length;
+    setMessages((prev) => [...prev, { sender: "ai", text: "" }]);
 
     try {
-      await sendMessageStream(text, personality, history, (chunk) => {
-        receivedChunk = true;
-        queueSmoothChunk(aiMessageId, chunk);
+      let fullAIResponse = "";
+      
+      // Memory Context: Last 4-5 messages (handled in api.ts, but we pass current messages)
+      await sendMessageStream(text, personality, newMessages, (chunk) => {
+        fullAIResponse += chunk;
+        setMessages((prev) => {
+          const updated = [...prev];
+          if (updated[aiMsgIndex]) {
+            updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: fullAIResponse };
+          }
+          return updated;
+        });
       });
-
-      if (receivedChunk) {
-        await finishSmoothStream(aiMessageId);
-        markComplete(aiMessageId);
-      } else {
-        removeMessage(aiMessageId);
-      }
     } catch (err) {
-      const apiErr = err as ApiError;
-
-      if (receivedChunk) {
-        await finishSmoothStream(aiMessageId);
-        markFailed(aiMessageId);
-      } else {
-        cancelSmoothStream();
-        removeMessage(aiMessageId);
-      }
-
-      setErrorState(resolveErrorState(apiErr));
-      pushToast({
-        type: "error",
-        message:
-          apiErr.message || "Oops 😅 Something went wrong. Please try again!",
-      });
+      setErrorVisible(true);
     } finally {
+      setIsStreaming(false);
       inputRef.current?.focus();
     }
   }
 
   function handleRetry() {
-    const lastUser = [...messages]
-      .reverse()
-      .find((message) => message.sender === "user");
-    if (lastUser) {
-      setInput(lastUser.text);
-    }
-
-    setErrorState(null);
+    setErrorVisible(false);
+    const lastUser = [...messages].reverse().find(m => m.sender === "user");
+    if (lastUser) setInput(lastUser.text);
     inputRef.current?.focus();
   }
 
   function finishOnboarding() {
     window.localStorage.setItem("clidy-onboarding-done", "true");
-    window.localStorage.setItem("clidy-personality", personality);
     setShowOnboarding(false);
     inputRef.current?.focus();
   }
 
   const hasOnlyWelcomeMessage =
     messages.length === 1 &&
-    messages[0]?.sender === "ai" &&
-    messages[0]?.status === "complete";
+    messages[0]?.sender === "ai";  async function handleEditMessage(index: number, newText: string) {
+    if (isStreaming) return;
+
+    // Remove all messages after the edited one (to reset context)
+    const updatedMessages = messages.slice(0, index);
+    const editedMsg: MessageTurn = { sender: "user", text: newText };
+    const finalMessages = [...updatedMessages, editedMsg];
+    
+    setMessages(finalMessages);
+    setIsStreaming(true);
+    setErrorVisible(false);
+
+    // AI Placeholder
+    const aiMsgIndex = finalMessages.length;
+    setMessages((prev) => [...prev, { sender: "ai", text: "" }]);
+
+    try {
+      let fullAIResponse = "";
+      await sendMessageStream(newText, personality, finalMessages, (chunk) => {
+        fullAIResponse += chunk;
+        setMessages((prev) => {
+          const updated = [...prev];
+          if (updated[aiMsgIndex]) {
+            updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: fullAIResponse };
+          }
+          return updated;
+        });
+      });
+    } catch (err) {
+      setErrorVisible(true);
+    } finally {
+      setIsStreaming(false);
+    }
+  }
 
   return (
-    <div
-      className={`chat-shell ${isImmersive ? "chat-shell--immersive" : ""}`.trim()}
-    >
+    <div className={`chat-shell ${isImmersive ? "chat-shell--immersive" : ""}`.trim()}>
       <OnboardingSlider
         open={showOnboarding}
         personality={personality}
@@ -351,13 +164,9 @@ export default function ChatExperience({
         onFinish={finishOnboarding}
       />
 
-      <div
-        className={`chat-panel ${isImmersive ? "chat-panel--immersive" : ""}`.trim()}
-      >
+      <div className={`chat-panel ${isImmersive ? "chat-panel--immersive" : ""}`.trim()}>
         <header className="chat-header">
-          <Link href="/" className="back-btn" title="Back to home">
-            ←
-          </Link>
+          <Link href="/" className="back-btn" title="Back to home">←</Link>
           <div className="chat-header-info">
             <div className="chat-avatar">✨</div>
             <div>
@@ -369,10 +178,7 @@ export default function ChatExperience({
             </div>
           </div>
           <div className="chat-header-actions">
-            <Link
-              href={isImmersive ? "/chat" : "/chat/live"}
-              className="chat-mode-link"
-            >
+            <Link href={isImmersive ? "/chat" : "/chat/live"} className="chat-mode-link">
               {isImmersive ? "Compact view" : "Open full chat"}
             </Link>
           </div>
@@ -380,112 +186,42 @@ export default function ChatExperience({
 
         <PersonalitySelector
           selected={personality}
-          onSelect={setPersonality}
+          onSelect={(id) => setPersonality(id as PersonalityPreset)}
           disabled={isStreaming || showOnboarding}
         />
 
         <div className="chat-messages">
           <div className="chat-log" aria-live="polite" aria-label="Chat messages">
-            {hasOnlyWelcomeMessage && !errorState && (
+            {hasOnlyWelcomeMessage && !errorVisible && (
               <section className="chat-blank">
-                <p className="chat-blank__eyebrow">
-                  {isImmersive ? "Full chat room is live" : "Streaming is live now"}
-                </p>
-                <h2 className="chat-blank__title">
-                  {isImmersive
-                    ? "Talk without the cramped modal feel"
-                    : "Start the first real convo"}
-                </h2>
-                <p className="chat-blank__copy">
-                  Ask for advice, drop a messy thought, or paste markdown. Clidy now
-                  streams replies with a smoother pace and formats completed AI
-                  messages cleanly.
-                </p>
+                <p className="chat-blank__eyebrow">{isImmersive ? "Full chat room is live" : "Streaming is live now"}</p>
+                <h2 className="chat-blank__title">{isImmersive ? "Talk without the cramped modal feel" : "Start the first real convo"}</h2>
+                <p className="chat-blank__copy">Ask for advice, drop a messy thought, or paste markdown. Clidy now streams replies with a smoother pace.</p>
                 <div className="chat-blank__prompts">
-                  <button
-                    type="button"
-                    onClick={() => setInput("Help me plan my week in a calm way.")}
-                  >
-                    Calm planning
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInput("Give me a funny pep talk before I study.")
-                    }
-                  >
-                    Funny pep talk
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInput("Explain async/await with a code example.")
-                    }
-                  >
-                    Markdown + code
-                  </button>
+                  <button type="button" onClick={() => setInput("Help me plan my week in a calm way.")}>Calm planning</button>
+                  <button type="button" onClick={() => setInput("Give me a funny pep talk before I study.")}>Funny pep talk</button>
+                  <button type="button" onClick={() => setInput("Explain async/await with a code example.")}>Markdown + code</button>
                 </div>
               </section>
             )}
 
-            {errorState && (
+            {errorVisible && (
               <section className="chat-blank chat-blank--error" role="alert">
                 <p className="chat-blank__eyebrow">Heads up</p>
-                <h2 className="chat-blank__title">{errorState.title}</h2>
-                <p className="chat-blank__copy">{errorState.copy}</p>
-                <button
-                  type="button"
-                  className="retry-btn"
-                  onClick={handleRetry}
-                >
-                  Retry with last message
-                </button>
+                <h2 className="chat-blank__title">Oops 😅 Try again</h2>
+                <p className="chat-blank__copy">Something went sideways. Clidy couldn't finish that thought.</p>
+                <button type="button" className="retry-btn" onClick={handleRetry}>Retry with last message</button>
               </section>
             )}
 
-            {messages.map((msg) => (
-              <article
-                key={msg.id}
-                className={`bubble bubble--${msg.sender === "ai" ? "ai" : "user"} ${
-                  msg.status === "failed" ? "bubble--failed" : ""
-                }`}
-              >
-                {msg.sender === "ai" && (
-                  <div className="bubble-avatar" aria-hidden="true">
-                    ✨
-                  </div>
-                )}
-
-                <div className="bubble-body">
-                  {msg.sender === "ai" && !msg.text ? (
-                    <TypingIndicator />
-                  ) : msg.sender === "ai" ? (
-                    <MarkdownRenderer content={msg.text} />
-                  ) : (
-                    <p className="bubble-text bubble-text--plain">
-                      {msg.text || "\u00A0"}
-                    </p>
-                  )}
-
-                  {msg.status === "streaming" && (
-                    <span className="bubble-status bubble-status--live">
-                      Clidy is streaming...
-                    </span>
-                  )}
-
-                  {msg.status === "failed" && (
-                    <span className="bubble-status">Stream interrupted</span>
-                  )}
-                </div>
-
-                {msg.sender === "user" && (
-                  <div className="bubble-avatar" aria-hidden="true">
-                    👤
-                  </div>
-                )}
-              </article>
+            {messages.map((msg, i) => (
+              <MessageBubble 
+                key={i} 
+                message={msg} 
+                isStreaming={isStreaming && i === messages.length - 1} 
+                onEdit={msg.sender === "user" ? (newText) => handleEditMessage(i, newText) : undefined}
+              />
             ))}
-
             <div ref={chatEndRef} />
           </div>
         </div>
@@ -495,11 +231,7 @@ export default function ChatExperience({
             ref={inputRef}
             id="chat-input"
             className="composer-input"
-            placeholder={
-              isImmersive
-                ? "Ask Clidy anything. This view is built for longer chats."
-                : "Talk to Clidy... 😊"
-            }
+            placeholder={isImmersive ? "Ask Clidy anything..." : "Talk to Clidy... 😊"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -510,24 +242,15 @@ export default function ChatExperience({
             }}
             disabled={isStreaming || showOnboarding}
             autoComplete="off"
-            autoFocus
             aria-label="Message input"
           />
-          <button
-            className="composer-send"
-            type="submit"
-            disabled={isStreaming || showOnboarding || !input.trim()}
-            title="Send message"
-            aria-label="Send message"
-          >
+          <button className="composer-send" type="submit" disabled={isStreaming || showOnboarding || !input.trim()}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
             </svg>
           </button>
         </form>
       </div>
-
-      <ToastContainer />
     </div>
   );
 }
