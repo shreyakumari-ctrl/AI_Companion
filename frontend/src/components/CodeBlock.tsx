@@ -12,21 +12,34 @@ interface CodeBlockProps {
 const CodeBlock = ({ language, children }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(children);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(children);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // silently fail if clipboard API is unavailable
+    }
   };
 
   return (
     <div className="code-block-container">
       <div className="code-block-header">
         <span className="code-lang">{language || "text"}</span>
-        <button className="copy-code-btn" onClick={handleCopy}>
-          {copied ? "Copied ✅" : "📋 Copy Code"}
+        <button
+          type="button"
+          className="copy-code-btn"
+          onClick={handleCopy}
+          aria-label="Copy code block"
+        >
+          {copied ? "Copied" : "Copy Code"}
         </button>
       </div>
-      <SyntaxHighlighter language={language || "text"} style={oneDark} customStyle={{ margin: 0, borderRadius: "0 0 8px 8px" }}>
+      <SyntaxHighlighter
+        language={language || "text"}
+        style={oneDark}
+        customStyle={{ margin: 0, borderRadius: "0 0 8px 8px" }}
+      >
         {children}
       </SyntaxHighlighter>
     </div>

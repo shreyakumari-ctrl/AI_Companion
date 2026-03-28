@@ -9,6 +9,7 @@ export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(1000),
   provider: z.enum(["gemini", "openai"]).default("gemini"),
   templateId: z.string().trim().min(1).max(120).optional(),
+  personality: z.enum(["Friendly", "Funny", "Motivational"]).optional(),
   history: z.array(historyTurnSchema).max(15).default([]),
   userId: z.string().cuid().nullable().optional(),
   conversationId: z.string().cuid().nullable().optional(),

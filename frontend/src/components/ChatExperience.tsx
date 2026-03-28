@@ -5,6 +5,7 @@ import Link from "next/link";
 import { sendMessageStream, MessageTurn, ApiError } from "@/services/api";
 import PersonalitySelector from "@/components/PersonalitySelector";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import MessageActions from "@/components/MessageActions";
 import OnboardingSlider from "@/components/OnboardingSlider";
 import ToastContainer from "@/components/ToastContainer";
 import TypingIndicator from "@/components/TypingIndicator";
@@ -79,6 +80,7 @@ export default function ChatExperience({
   const markComplete = useChatStore((state) => state.markComplete);
   const markFailed = useChatStore((state) => state.markFailed);
   const removeMessage = useChatStore((state) => state.removeMessage);
+  const clearHistory = useChatStore((state) => state.clearHistory);
   const pushToast = useChatStore((state) => state.pushToast);
   const conversationId = useChatStore((state) => state.conversationId);
   const setConversationId = useChatStore((state) => state.setConversationId);
@@ -340,6 +342,39 @@ export default function ChatExperience({
     inputRef.current?.focus();
   }
 
+  function handleEditMessage(text: string) {
+    setInput(text);
+    setErrorState(null);
+    inputRef.current?.focus();
+  }
+
+  function handleRetryFromText(text: string) {
+    setInput(text);
+    setErrorState(null);
+    inputRef.current?.focus();
+    pushToast({
+      type: "info",
+      message: "Retry draft added to the input",
+    });
+  }
+
+  function handleNewBranchFromText(text: string) {
+    clearHistory();
+    setConversationId(null);
+    setErrorState(null);
+    setInput(text);
+    addMessage({
+      sender: "ai",
+      text: `${getWelcomeMessage(personality)}\n\nNew branch draft is ready below.`,
+      status: "complete",
+    });
+    inputRef.current?.focus();
+    pushToast({
+      type: "info",
+      message: "Started a new branch from this message",
+    });
+  }
+
   function finishOnboarding() {
     window.localStorage.setItem("clidy-onboarding-done", "true");
     window.localStorage.setItem("clidy-personality", personality);
@@ -456,7 +491,7 @@ export default function ChatExperience({
               </section>
             )}
 
-            {messages.map((msg) => (
+            {messages.map((msg, index) => (
               <article
                 key={msg.id}
                 className={`bubble bubble--${msg.sender === "ai" ? "ai" : "user"} ${
@@ -488,6 +523,33 @@ export default function ChatExperience({
 
                   {msg.status === "failed" && (
                     <span className="bubble-status">Stream interrupted</span>
+                  )}
+
+                  {msg.text && (
+                    <MessageActions
+                      text={msg.text}
+                      sender={msg.sender}
+                      onRetry={
+                        msg.sender === "ai"
+                          ? () => {
+                              const previousUserText =
+                                [...messages.slice(0, index)]
+                                  .reverse()
+                                  .find((message) => message.sender === "user")?.text ?? "";
+
+                              if (previousUserText) {
+                                handleRetryFromText(previousUserText);
+                              }
+                            }
+                          : undefined
+                      }
+                      onBranch={() => handleNewBranchFromText(msg.text)}
+                      onEdit={
+                        msg.sender === "user"
+                          ? () => handleEditMessage(msg.text)
+                          : undefined
+                      }
+                    />
                   )}
                 </div>
 

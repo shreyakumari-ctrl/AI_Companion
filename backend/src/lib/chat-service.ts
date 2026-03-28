@@ -11,6 +11,7 @@ export type ChatExecutionInput = {
   message: string;
   provider: ProviderName;
   templateId?: string;
+  personality?: "Friendly" | "Funny" | "Motivational";
   history: HistoryTurn[];
   conversationId?: string | null;
   userId?: string | null;
@@ -115,6 +116,19 @@ function buildFallbackReply(message: string) {
   return `Clidy fallback reply: I heard "${message}". The server is online, but the selected provider is unavailable right now.`;
 }
 
+function resolvePersonalityDefaults(personality?: ChatExecutionInput["personality"]) {
+  switch (personality) {
+    case "Funny":
+      return { tonePreference: "playful", mood: "happy" };
+    case "Motivational":
+      return { tonePreference: "motivational", mood: "focused" };
+    case "Friendly":
+      return { tonePreference: "friendly", mood: "curious" };
+    default:
+      return null;
+  }
+}
+
 export async function resolveStoredConversation(params: {
   conversationId?: string | null;
   userId: string | null;
@@ -203,9 +217,14 @@ async function prepareChatRequest(
     ? await loadRecentConversationTurns(conversation.id)
     : normalizeHistory(params.history);
 
+  const personalityDefaults = resolvePersonalityDefaults(params.personality);
   const tonePreference =
-    params.tonePreference ?? user?.tonePreference ?? "friendly";
-  const mood = params.mood ?? user?.mood ?? "curious";
+    params.tonePreference ??
+    personalityDefaults?.tonePreference ??
+    user?.tonePreference ??
+    "friendly";
+  const mood =
+    params.mood ?? personalityDefaults?.mood ?? user?.mood ?? "curious";
   const systemInstruction = resolveTemplate(params.templateId, {
     tonePreference,
     mood,

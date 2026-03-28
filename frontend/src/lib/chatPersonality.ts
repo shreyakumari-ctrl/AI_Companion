@@ -46,6 +46,7 @@ export function isPersonalityPreset(value: string): value is PersonalityPreset {
 export function getPersonalityPayload(personality: PersonalityPreset) {
   const config = personalityConfigs[personality];
   return {
+    personality,
     tonePreference: config.tonePreference,
     mood: config.mood,
   };

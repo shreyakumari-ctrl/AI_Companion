@@ -1,6 +1,7 @@
 import { getPersonalityPayload, type PersonalityPreset } from "@/lib/chatPersonality";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000";
+const V1_API_BASE = "/api/v1";
 
 export interface MessageTurn {
   sender: "user" | "ai";
@@ -129,6 +130,7 @@ export async function sendMessageStream(
 ): Promise<ChatStreamMeta | null> {
   let response: Response;
   let streamMeta: ChatStreamMeta | null = null;
+  let receivedStreamChunk = false;
 
   try {
     response = await fetch(`${API_URL}/api/chat/stream`, {
@@ -136,7 +138,7 @@ export async function sendMessageStream(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        history: history.slice(-12),
+        history: history.slice(-5),
         conversationId,
         ...getPersonalityPayload(personality),
       }),
@@ -168,14 +170,73 @@ export async function sendMessageStream(
     buffer = eventBlocks.pop() ?? "";
 
     for (const eventBlock of eventBlocks) {
-      const isDone = consumeSseEventBlock(eventBlock, onChunk, (meta) => {
-        streamMeta = meta;
-      });
-      if (isDone) {
-        return streamMeta;
+      try {
+        const isDone = consumeSseEventBlock(
+          eventBlock,
+          (chunk) => {
+            if (chunk) {
+              receivedStreamChunk = true;
+            }
+            onChunk(chunk);
+          },
+          (meta) => {
+            streamMeta = meta;
+          },
+        );
+
+        if (isDone) {
+          return streamMeta;
+        }
+      } catch (error) {
+        if (receivedStreamChunk) {
+          return streamMeta;
+        }
+
+        throw error;
       }
     }
   }
 
   return streamMeta;
+}
+
+export interface ActivityItem {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  timestamp: string;
+}
+
+export interface ProfilePayload {
+  name: string;
+  email: string;
+  bio: string;
+}
+
+async function parseJsonOrError(response: Response) {
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+  return response.json();
+}
+
+export async function getActivityFeed(): Promise<ActivityItem[]> {
+  const response = await fetch(`${V1_API_BASE}/activity`);
+  return parseJsonOrError(response);
+}
+
+export async function getProfile(): Promise<ProfilePayload> {
+  const response = await fetch(`${V1_API_BASE}/profile`);
+  return parseJsonOrError(response);
+}
+
+export async function updateProfile(profile: ProfilePayload): Promise<ProfilePayload> {
+  const response = await fetch(`${V1_API_BASE}/profile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+
+  return parseJsonOrError(response);
 }
