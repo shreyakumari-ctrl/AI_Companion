@@ -1,41 +1,81 @@
 "use client";
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useChatStore } from "../store/chatStore";
 
 export default function ToastContainer() {
   const toasts = useChatStore((s) => s.toasts);
   const dismissToastAction = useChatStore((s) => s.dismissToast);
+  const [leavingIds, setLeavingIds] = useState<string[]>([]);
+  const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Stable reference so the effect doesn't re-run on every render
   const dismissToast = useCallback(
-    (id: string) => dismissToastAction(id),
-    [dismissToastAction]
+    (id: string) => {
+      if (timersRef.current[id]) {
+        clearTimeout(timersRef.current[id]);
+        delete timersRef.current[id];
+      }
+
+      setLeavingIds((current) =>
+        current.includes(id) ? current : [...current, id],
+      );
+
+      timersRef.current[id] = setTimeout(() => {
+        dismissToastAction(id);
+        setLeavingIds((current) => current.filter((toastId) => toastId !== id));
+        delete timersRef.current[id];
+      }, 220);
+    },
+    [dismissToastAction],
   );
 
-  const activeToast = toasts[0];
-
   useEffect(() => {
-    if (!activeToast) return;
-    const timer = setTimeout(() => dismissToast(activeToast.id), 5000);
-    return () => clearTimeout(timer);
-  }, [activeToast?.id, dismissToast]);
+    toasts.forEach((toast) => {
+      if (timersRef.current[toast.id]) return;
 
-  if (!activeToast) return null;
+      timersRef.current[toast.id] = setTimeout(() => {
+        setLeavingIds((current) =>
+          current.includes(toast.id) ? current : [...current, toast.id],
+        );
+
+        timersRef.current[toast.id] = setTimeout(() => {
+          dismissToastAction(toast.id);
+          setLeavingIds((current) => current.filter((toastId) => toastId !== toast.id));
+          delete timersRef.current[toast.id];
+        }, 220);
+      }, 3000);
+    });
+
+    return () => {
+      Object.values(timersRef.current).forEach(clearTimeout);
+      timersRef.current = {};
+    };
+  }, [toasts, dismissToastAction]);
+
+  if (!toasts.length) return null;
 
   return (
-    <div
-      role="alert"
-      aria-live="polite"
-      className={`toast-shell toast-shell--${activeToast.type}`}
-    >
-      <span>{activeToast.message}</span>
-      <button
-        onClick={() => dismissToast(activeToast.id)}
-        aria-label="Dismiss notification"
-        className="toast-dismiss"
-      >
-        ×
-      </button>
+    <div className="toast-viewport" role="status" aria-live="polite">
+      {toasts.map((toast) => {
+        const leaving = leavingIds.includes(toast.id);
+
+        return (
+          <div
+            key={toast.id}
+            className={`toast-notification ${toast.type} ${
+              leaving ? "toast-leaving" : ""
+            }`}
+          >
+            <span>{toast.message}</span>
+            <button
+              onClick={() => dismissToast(toast.id)}
+              aria-label="Dismiss notification"
+              className="toast-dismiss"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

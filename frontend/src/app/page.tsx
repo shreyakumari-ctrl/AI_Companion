@@ -1,6 +1,11 @@
 "use client";
 
+import React, { Suspense } from "react";
 import Link from "next/link";
+import ToastContainer from "@/components/ToastContainer";
+
+const ActivityFeed = React.lazy(() => import("@/components/ActivityFeed"));
+const ProfileSettings = React.lazy(() => import("@/components/ProfileSettings"));
 
 const features = [
   {
@@ -194,6 +199,22 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <Suspense fallback={<div className="dashboard-loading-panel">Loading dashboard…</div>}>
+        <section className="dashboard-section" id="dashboard">
+          <div className="section-container">
+            <div className="section-label">Dashboard</div>
+            <h2 className="section-title">Live activity feed & profile settings</h2>
+            <p className="section-subtitle">
+              Stay in sync with recent events and update your profile without leaving the app.
+            </p>
+            <div className="dashboard-grid">
+              <ActivityFeed />
+              <ProfileSettings />
+            </div>
+          </div>
+        </section>
+      </Suspense>
+
       {/* ── CTA ─────────────────────────────────────────── */}
       <section className="cta-section">
         <div className="cta-inner">
@@ -219,6 +240,7 @@ export default function LandingPage() {
         </div>
         <p className="footer-copy">© 2025 Clidy AI. Made with 💜</p>
       </footer>
+      <ToastContainer />
     </div>
   );
 }

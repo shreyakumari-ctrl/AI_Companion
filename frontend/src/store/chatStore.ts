@@ -103,9 +103,17 @@ export const useChatStore = create<ChatStore>((set) => ({
     }),
 
   pushToast: (toast) =>
-    set((state) => ({
-      toasts: [...state.toasts, { ...toast, id: nanoid() }],
-    })),
+    set((state) => {
+      const exists = state.toasts.some(
+        (existing) => existing.message === toast.message && existing.type === toast.type,
+      );
+
+      return exists
+        ? state
+        : {
+            toasts: [...state.toasts, { ...toast, id: nanoid() }],
+          };
+    }),
 
   dismissToast: (id) =>
     set((state) => ({
