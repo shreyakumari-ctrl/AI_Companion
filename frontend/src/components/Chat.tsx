@@ -45,14 +45,20 @@ const Chat = () => {
       // Add a placeholder for AI message
       setMessages((prev) => [...prev, { sender: "ai", text: "" }]);
 
-      await sendMessageStream(input, personality, messages, (chunk: string) => {
-        aiResponse += chunk;
-        setMessages((prev) => {
-          const newMessages = [...prev];
-          newMessages[aiMsgIndex] = { sender: "ai", text: aiResponse };
-          return newMessages;
-        });
-      });
+      await sendMessageStream(
+        input,
+        personality,
+        messages,
+        { goals: "", interests: "" },
+        (chunk: string) => {
+          aiResponse += chunk;
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            newMessages[aiMsgIndex] = { sender: "ai", text: aiResponse };
+            return newMessages;
+          });
+        },
+      );
     } catch (err) {
       setError("Oops 😅 something went wrong");
     } finally {

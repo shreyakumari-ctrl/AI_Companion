@@ -2,7 +2,12 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { sendMessage, MessageTurn, ApiError } from "@/services/api";
+import {
+  sendMessageStream,
+  type ChatAttachmentPayload,
+  MessageTurn,
+  ApiError,
+} from "@/services/api";
 import PersonalitySelector from "@/components/PersonalitySelector";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import MessageActions from "@/components/MessageActions";
@@ -22,6 +27,7 @@ type ComposerAttachment = {
   label: string;
   kind: AttachmentKind;
   meta?: string;
+  previewUrl?: string;
 };
 
 type SpeechRecognitionConstructor = new () => {
@@ -105,12 +111,14 @@ function createComposerAttachment(
   label: string,
   kind: AttachmentKind,
   meta?: string,
+  previewUrl?: string,
 ): ComposerAttachment {
   return {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     label,
     kind,
     meta,
+    previewUrl,
   };
 }
 
@@ -373,6 +381,7 @@ export default function ChatExperience({
           file.name,
           kind,
           `${Math.max(1, Math.round(file.size / 1024))} KB`,
+          kind === "photo" ? URL.createObjectURL(file) : undefined,
         ),
       ),
     );
@@ -460,6 +469,22 @@ export default function ChatExperience({
       return;
     }
 
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 960;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      pushToast({
+        type: "error",
+        message: "Camera frame capture initialize nahi ho paya.",
+      });
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const previewUrl = canvas.toDataURL("image/jpeg", 0.92);
+
     addComposerAttachments([
       createComposerAttachment(
         `Camera capture ${new Date().toLocaleTimeString([], {
@@ -468,6 +493,7 @@ export default function ChatExperience({
         })}`,
         "camera",
         "Live capture",
+        previewUrl,
       ),
     ]);
     pushToast({
@@ -478,9 +504,14 @@ export default function ChatExperience({
   }
 
   function handleRemoveComposerAttachment(id: string) {
-    setComposerAttachments((current) =>
-      current.filter((attachment) => attachment.id !== id),
-    );
+    setComposerAttachments((current) => {
+      const attachmentToRemove = current.find((attachment) => attachment.id === id);
+      if (attachmentToRemove?.previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(attachmentToRemove.previewUrl);
+      }
+
+      return current.filter((attachment) => attachment.id !== id);
+    });
   }
 
   function handleToggleVoiceInput() {
@@ -541,6 +572,29 @@ export default function ChatExperience({
     setComposerMenuOpen(false);
   }
 
+  function buildAttachmentPayload(
+    attachments: ComposerAttachment[],
+  ): ChatAttachmentPayload[] {
+    return attachments.map((attachment) => ({
+      id: attachment.id,
+      kind: attachment.kind,
+      label: attachment.label,
+      meta: attachment.meta,
+    }));
+  }
+
+  function clearComposerAttachments() {
+    setComposerAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+
+      return [];
+    });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
@@ -562,6 +616,7 @@ export default function ChatExperience({
 
     setInput("");
     setErrorState(null);
+    setComposerMenuOpen(false);
 
     const priorHistory: MessageTurn[] = messages
       .filter(
@@ -573,10 +628,10 @@ export default function ChatExperience({
         text: message.text,
       }));
     const history: MessageTurn[] = [...priorHistory, { sender: "user", text }];
-    let hasQueuedResponse = false;
+    const attachmentPayload = buildAttachmentPayload(composerAttachments);
 
     try {
-      const response = await sendMessage(
+      const streamMeta = await sendMessageStream(
         text,
         personality,
         history,
@@ -584,18 +639,23 @@ export default function ChatExperience({
           goals: userProfile.goals.trim(),
           interests: userProfile.interests.trim(),
         },
+        (chunk) => {
+          queueSmoothChunk(aiMessageId, chunk);
+        },
+        attachmentPayload,
+        activeTool,
         conversationId,
       );
 
-      if (response.conversationId) {
-        setConversationId(response.conversationId);
+      await finishSmoothStream(aiMessageId);
+
+      if (streamMeta?.conversationId) {
+        setConversationId(streamMeta.conversationId);
       }
 
-      if (response.reply.trim()) {
-        hasQueuedResponse = true;
-        queueSmoothChunk(aiMessageId, response.reply);
-        await finishSmoothStream(aiMessageId);
+      if (streamMeta || streamBufferRef.current || streamMessageIdRef.current === null) {
         markComplete(aiMessageId);
+        clearComposerAttachments();
       } else {
         removeMessage(aiMessageId);
       }
@@ -603,11 +663,7 @@ export default function ChatExperience({
       const apiErr = err as ApiError;
 
       cancelSmoothStream();
-      if (hasQueuedResponse) {
-        markFailed(aiMessageId);
-      } else {
-        removeMessage(aiMessageId);
-      }
+      markFailed(aiMessageId);
 
       setErrorState(resolveErrorState(apiErr));
       pushToast({
@@ -962,6 +1018,13 @@ export default function ChatExperience({
               <div className="composer-attachments" aria-label="Attached sources">
                 {composerAttachments.map((attachment) => (
                   <div key={attachment.id} className="composer-attachment-pill">
+                    {attachment.previewUrl && (
+                      <img
+                        src={attachment.previewUrl}
+                        alt={attachment.label}
+                        className="composer-attachment-pill__preview"
+                      />
+                    )}
                     <span className="composer-attachment-pill__kind">
                       {attachment.kind}
                     </span>

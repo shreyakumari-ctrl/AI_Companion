@@ -13,6 +13,13 @@ export interface UserProfilePayload {
   interests: string;
 }
 
+export interface ChatAttachmentPayload {
+  id: string;
+  kind: "photo" | "camera" | "file" | "drive" | "notebook";
+  label: string;
+  meta?: string;
+}
+
 export interface ApiError {
   status: number;
   message: string;
@@ -146,6 +153,8 @@ export async function sendMessage(
   personality: PersonalityPreset,
   history: MessageTurn[],
   userProfile: UserProfilePayload,
+  attachments: ChatAttachmentPayload[] = [],
+  mode: "search" | "analyze" | "create" = "search",
   conversationId?: string | null,
 ): Promise<ChatResponse> {
   let response: Response;
@@ -159,6 +168,8 @@ export async function sendMessage(
         history: history.slice(-5),
         conversationId,
         userProfile,
+        attachments,
+        mode,
         ...getPersonalityPayload(personality),
       }),
     });
@@ -177,7 +188,10 @@ export async function sendMessageStream(
   message: string,
   personality: PersonalityPreset,
   history: MessageTurn[],
+  userProfile: UserProfilePayload,
   onChunk: (chunk: string) => void,
+  attachments: ChatAttachmentPayload[] = [],
+  mode: "search" | "analyze" | "create" = "search",
   conversationId?: string | null,
 ): Promise<ChatStreamMeta | null> {
   let response: Response;
@@ -192,6 +206,9 @@ export async function sendMessageStream(
         message,
         history: history.slice(-5),
         conversationId,
+        userProfile,
+        attachments,
+        mode,
         ...getPersonalityPayload(personality),
       }),
     });
