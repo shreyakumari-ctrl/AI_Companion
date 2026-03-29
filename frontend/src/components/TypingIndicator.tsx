@@ -2,13 +2,17 @@
 
 import React from "react";
 
-const TypingIndicator = () => {
+type TypingIndicatorProps = {
+  label?: string;
+};
+
+const TypingIndicator = ({ label = "Clidy is typing..." }: TypingIndicatorProps) => {
   return (
-    <div className="typing-indicator" aria-label="Clidy is typing">
+    <div className="typing-indicator" aria-label={label}>
       <span></span>
       <span></span>
       <span></span>
-      <strong className="typing-indicator__label">Clidy is typing...</strong>
+      <strong className="typing-indicator__label">{label}</strong>
       <style jsx>{`
         .typing-indicator {
           display: inline-flex;

@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { sendMessageStream, MessageTurn, ApiError } from "@/services/api";
+import { sendMessage, MessageTurn, ApiError } from "@/services/api";
 import PersonalitySelector from "@/components/PersonalitySelector";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import MessageActions from "@/components/MessageActions";
@@ -12,9 +12,40 @@ import TypingIndicator from "@/components/TypingIndicator";
 import { useChatStore } from "@/store/chatStore";
 import {
   getWelcomeMessage,
-  isPersonalityPreset,
   type PersonalityPreset,
 } from "@/lib/chatPersonality";
+
+type AttachmentKind = "photo" | "camera" | "file" | "drive" | "notebook";
+
+type ComposerAttachment = {
+  id: string;
+  label: string;
+  kind: AttachmentKind;
+  meta?: string;
+};
+
+type SpeechRecognitionConstructor = new () => {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<{
+    0: {
+      transcript: string;
+    };
+    isFinal?: boolean;
+    length: number;
+  }>;
+};
+
+type CameraState = "idle" | "loading" | "ready" | "error";
 
 type ErrorViewState = {
   title: string;
@@ -70,12 +101,37 @@ function getStreamDelay(token: string) {
   return Math.min(42, Math.max(18, token.length * 6));
 }
 
+function createComposerAttachment(
+  label: string,
+  kind: AttachmentKind,
+  meta?: string,
+): ComposerAttachment {
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    label,
+    kind,
+    meta,
+  };
+}
+
 export default function ChatExperience({
   variant = "panel",
 }: ChatExperienceProps) {
+  const RecognitionAPI =
+    typeof window !== "undefined"
+      ? ((window as Window & {
+          SpeechRecognition?: SpeechRecognitionConstructor;
+          webkitSpeechRecognition?: SpeechRecognitionConstructor;
+        }).SpeechRecognition ??
+        (window as Window & {
+          SpeechRecognition?: SpeechRecognitionConstructor;
+          webkitSpeechRecognition?: SpeechRecognitionConstructor;
+        }).webkitSpeechRecognition)
+      : undefined;
   const messages = useChatStore((state) => state.messages);
   const isStreaming = useChatStore((state) => state.isStreaming);
   const addMessage = useChatStore((state) => state.addMessage);
+  const updateMessage = useChatStore((state) => state.updateMessage);
   const appendChunk = useChatStore((state) => state.appendChunk);
   const markComplete = useChatStore((state) => state.markComplete);
   const markFailed = useChatStore((state) => state.markFailed);
@@ -84,15 +140,35 @@ export default function ChatExperience({
   const pushToast = useChatStore((state) => state.pushToast);
   const conversationId = useChatStore((state) => state.conversationId);
   const setConversationId = useChatStore((state) => state.setConversationId);
+  const userProfile = useChatStore((state) => state.userProfile);
+  const updateUserProfile = useChatStore((state) => state.updateUserProfile);
 
   const [input, setInput] = useState("");
-  const [personality, setPersonality] = useState<PersonalityPreset>("Friendly");
   const [hasHydrated, setHasHydrated] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [errorState, setErrorState] = useState<ErrorViewState | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+  const [composerAttachments, setComposerAttachments] = useState<
+    ComposerAttachment[]
+  >([]);
+  const [activeTool, setActiveTool] = useState<"search" | "analyze" | "create">(
+    "search",
+  );
+  const [isListening, setIsListening] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraState, setCameraState] = useState<CameraState>("idle");
 
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerMenuRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<{
+    stop: () => void;
+  } | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const streamBufferRef = useRef("");
   const streamTimerRef = useRef<number | null>(null);
   const streamFinishedRef = useRef(false);
@@ -100,30 +176,16 @@ export default function ChatExperience({
   const streamDrainResolverRef = useRef<(() => void) | null>(null);
 
   const isImmersive = variant === "immersive";
+  const personality = userProfile.personality as PersonalityPreset;
+  const showOnboarding = !userProfile.onboardingCompleted;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
   useEffect(() => {
-    const storedPersonality = window.localStorage.getItem("clidy-personality");
-    if (storedPersonality && isPersonalityPreset(storedPersonality)) {
-      setPersonality(storedPersonality);
-    }
-
-    setShowOnboarding(
-      window.localStorage.getItem("clidy-onboarding-done") !== "true",
-    );
     setHasHydrated(true);
   }, []);
-
-  useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
-
-    window.localStorage.setItem("clidy-personality", personality);
-  }, [hasHydrated, personality]);
 
   useEffect(() => {
     if (!hasHydrated || showOnboarding || messages.length > 0) {
@@ -142,6 +204,45 @@ export default function ChatExperience({
       if (streamTimerRef.current !== null) {
         window.clearTimeout(streamTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (!composerMenuRef.current?.contains(event.target as Node)) {
+        setComposerMenuOpen(false);
+      }
+    }
+
+    if (composerMenuOpen) {
+      window.addEventListener("mousedown", handleOutsideClick);
+    }
+
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [composerMenuOpen]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
     };
   }, []);
 
@@ -252,6 +353,194 @@ export default function ChatExperience({
     settleQueuedStream();
   }
 
+  function addComposerAttachments(next: ComposerAttachment[]) {
+    setComposerAttachments((current) => [...current, ...next]);
+  }
+
+  function handleFileSelection(
+    event: ChangeEvent<HTMLInputElement>,
+    kind: AttachmentKind,
+  ) {
+    const files = Array.from(event.target.files ?? []);
+
+    if (!files.length) {
+      return;
+    }
+
+    addComposerAttachments(
+      files.map((file) =>
+        createComposerAttachment(
+          file.name,
+          kind,
+          `${Math.max(1, Math.round(file.size / 1024))} KB`,
+        ),
+      ),
+    );
+    setComposerMenuOpen(false);
+    pushToast({
+      type: "info",
+      message: `${files.length} ${kind === "file" ? "file" : "image"} added to the composer`,
+    });
+    event.target.value = "";
+  }
+
+  function handleAddCloudSource(kind: "drive" | "notebook") {
+    addComposerAttachments([
+      createComposerAttachment(
+        kind === "drive" ? "Google Drive source" : "Notebook source",
+        kind,
+        kind === "drive" ? "Cloud link" : "Research context",
+      ),
+    ]);
+    setComposerMenuOpen(false);
+    pushToast({
+      type: "info",
+      message:
+        kind === "drive"
+          ? "Drive source chip added. Connect backend sync next for real document fetch."
+          : "Notebook source chip added. Source grounding UI is ready.",
+    });
+  }
+
+  async function handleOpenCamera() {
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      pushToast({
+        type: "error",
+        message: "Camera access is not supported in this browser.",
+      });
+      return;
+    }
+
+    try {
+      setCameraOpen(true);
+      setCameraState("loading");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+        audio: false,
+      });
+
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = stream;
+
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+        await cameraVideoRef.current.play();
+      }
+
+      setCameraState("ready");
+      setComposerMenuOpen(false);
+    } catch {
+      setCameraState("error");
+      pushToast({
+        type: "error",
+        message: "Camera open nahi ho paya. Permission allow karke phir try karo.",
+      });
+    }
+  }
+
+  function handleCloseCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+    setCameraState("idle");
+  }
+
+  function handleCaptureFromCamera() {
+    const video = cameraVideoRef.current;
+
+    if (!video || !cameraStreamRef.current) {
+      return;
+    }
+
+    addComposerAttachments([
+      createComposerAttachment(
+        `Camera capture ${new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`,
+        "camera",
+        "Live capture",
+      ),
+    ]);
+    pushToast({
+      type: "info",
+      message: "Camera capture composer me add ho gaya.",
+    });
+    handleCloseCamera();
+  }
+
+  function handleRemoveComposerAttachment(id: string) {
+    setComposerAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
+  }
+
+  function handleToggleVoiceInput() {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      setIsListening(false);
+      return;
+    }
+
+    if (!RecognitionAPI) {
+      pushToast({
+        type: "error",
+        message: "Voice input is not supported in this browser yet.",
+      });
+      return;
+    }
+
+    const recognition = new RecognitionAPI();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+      let finalTranscript = "";
+
+      for (let index = 0; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        }
+      }
+
+      if (finalTranscript.trim()) {
+        setInput((current) =>
+          `${current}${current.trim() ? " " : ""}${finalTranscript.trim()}`.trim(),
+        );
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      pushToast({
+        type: "error",
+        message: "Voice capture stopped before transcription could finish.",
+      });
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
+    setComposerMenuOpen(false);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
@@ -274,7 +563,7 @@ export default function ChatExperience({
     setInput("");
     setErrorState(null);
 
-    const history: MessageTurn[] = messages
+    const priorHistory: MessageTurn[] = messages
       .filter(
         (message) =>
           message.text.trim().length > 0 && message.status !== "failed",
@@ -283,26 +572,28 @@ export default function ChatExperience({
         sender: message.sender,
         text: message.text,
       }));
-
-    let receivedChunk = false;
+    const history: MessageTurn[] = [...priorHistory, { sender: "user", text }];
+    let hasQueuedResponse = false;
 
     try {
-      const streamMeta = await sendMessageStream(
+      const response = await sendMessage(
         text,
         personality,
         history,
-        (chunk) => {
-          receivedChunk = true;
-          queueSmoothChunk(aiMessageId, chunk);
+        {
+          goals: userProfile.goals.trim(),
+          interests: userProfile.interests.trim(),
         },
         conversationId,
       );
 
-      if (streamMeta?.conversationId) {
-        setConversationId(streamMeta.conversationId);
+      if (response.conversationId) {
+        setConversationId(response.conversationId);
       }
 
-      if (receivedChunk) {
+      if (response.reply.trim()) {
+        hasQueuedResponse = true;
+        queueSmoothChunk(aiMessageId, response.reply);
         await finishSmoothStream(aiMessageId);
         markComplete(aiMessageId);
       } else {
@@ -311,11 +602,10 @@ export default function ChatExperience({
     } catch (err) {
       const apiErr = err as ApiError;
 
-      if (receivedChunk) {
-        await finishSmoothStream(aiMessageId);
+      cancelSmoothStream();
+      if (hasQueuedResponse) {
         markFailed(aiMessageId);
       } else {
-        cancelSmoothStream();
         removeMessage(aiMessageId);
       }
 
@@ -342,10 +632,27 @@ export default function ChatExperience({
     inputRef.current?.focus();
   }
 
-  function handleEditMessage(text: string) {
-    setInput(text);
+  function handleStartEditMessage(id: string, text: string) {
+    setEditingMessageId(id);
+    setEditingText(text);
     setErrorState(null);
-    inputRef.current?.focus();
+  }
+
+  function handleCancelEditMessage() {
+    setEditingMessageId(null);
+    setEditingText("");
+  }
+
+  function handleSaveEditMessage() {
+    const nextText = editingText.trim();
+
+    if (!editingMessageId || !nextText) {
+      return;
+    }
+
+    updateMessage(editingMessageId, nextText);
+    setEditingMessageId(null);
+    setEditingText("");
   }
 
   function handleRetryFromText(text: string) {
@@ -376,9 +683,10 @@ export default function ChatExperience({
   }
 
   function finishOnboarding() {
-    window.localStorage.setItem("clidy-onboarding-done", "true");
-    window.localStorage.setItem("clidy-personality", personality);
-    setShowOnboarding(false);
+    updateUserProfile({
+      onboardingCompleted: true,
+      personality,
+    });
     inputRef.current?.focus();
   }
 
@@ -394,7 +702,13 @@ export default function ChatExperience({
       <OnboardingSlider
         open={showOnboarding}
         personality={personality}
-        onPersonalityChange={setPersonality}
+        goals={userProfile.goals}
+        interests={userProfile.interests}
+        onGoalsChange={(goals) => updateUserProfile({ goals })}
+        onInterestsChange={(interests) => updateUserProfile({ interests })}
+        onPersonalityChange={(nextPersonality) =>
+          updateUserProfile({ personality: nextPersonality })
+        }
         onFinish={finishOnboarding}
       />
 
@@ -427,7 +741,9 @@ export default function ChatExperience({
 
         <PersonalitySelector
           selected={personality}
-          onSelect={(id) => setPersonality(id as PersonalityPreset)}
+          onSelect={(id) =>
+            updateUserProfile({ personality: id as PersonalityPreset })
+          }
           disabled={isStreaming || showOnboarding}
         />
 
@@ -505,8 +821,38 @@ export default function ChatExperience({
                 )}
 
                 <div className="bubble-body">
+                  {editingMessageId === msg.id && msg.sender === "user" ? (
+                    <div className="edit-message-container">
+                      <textarea
+                        className="edit-message-input"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={3}
+                        autoFocus
+                        aria-label="Edit message"
+                      />
+                      <div className="edit-actions">
+                        <button
+                          type="button"
+                          className="edit-action-btn edit-action-btn--primary"
+                          onClick={handleSaveEditMessage}
+                          disabled={!editingText.trim()}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-action-btn"
+                          onClick={handleCancelEditMessage}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   {msg.sender === "ai" && !msg.text ? (
-                    <TypingIndicator />
+                    <TypingIndicator label="Thinking..." />
                   ) : msg.sender === "ai" ? (
                     <MarkdownRenderer content={msg.text} />
                   ) : (
@@ -546,10 +892,12 @@ export default function ChatExperience({
                       onBranch={() => handleNewBranchFromText(msg.text)}
                       onEdit={
                         msg.sender === "user"
-                          ? () => handleEditMessage(msg.text)
+                          ? () => handleStartEditMessage(msg.id, msg.text)
                           : undefined
                       }
                     />
+                  )}
+                    </>
                   )}
                 </div>
 
@@ -567,40 +915,254 @@ export default function ChatExperience({
 
         <form className="chat-composer" onSubmit={handleSubmit}>
           <input
-            ref={inputRef}
-            id="chat-input"
-            className="composer-input"
-            placeholder={
-              isImmersive
-                ? "Ask Clidy anything. This view is built for longer chats."
-                : "Talk to Clidy... 😊"
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e as unknown as FormEvent);
-              }
-            }}
-            disabled={isStreaming || showOnboarding}
-            autoComplete="off"
-            autoFocus
-            aria-label="Message input"
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => handleFileSelection(event, "photo")}
           />
-          <button
-            className="composer-send"
-            type="submit"
-            disabled={isStreaming || showOnboarding || !input.trim()}
-            title="Send message"
-            aria-label="Send message"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.ppt,.pptx"
+            multiple
+            hidden
+            onChange={(event) => handleFileSelection(event, "file")}
+          />
+
+          <div className="composer-shell">
+            <div className="composer-topbar" aria-label="Composer tools">
+              <div className="composer-mode-row">
+                {[
+                  ["search", "Search"],
+                  ["analyze", "Analyze"],
+                  ["create", "Create"],
+                ].map(([tool, label]) => (
+                  <button
+                    key={tool}
+                    type="button"
+                    className={`composer-mode-chip ${
+                      activeTool === tool ? "composer-mode-chip--active" : ""
+                    }`}
+                    onClick={() =>
+                      setActiveTool(tool as "search" | "analyze" | "create")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="composer-status-badge">
+                {isListening ? "Listening" : activeTool}
+              </div>
+            </div>
+
+            {composerAttachments.length > 0 && (
+              <div className="composer-attachments" aria-label="Attached sources">
+                {composerAttachments.map((attachment) => (
+                  <div key={attachment.id} className="composer-attachment-pill">
+                    <span className="composer-attachment-pill__kind">
+                      {attachment.kind}
+                    </span>
+                    <span>{attachment.label}</span>
+                    {attachment.meta && (
+                      <span className="composer-attachment-pill__meta">
+                        {attachment.meta}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="composer-attachment-pill__remove"
+                      onClick={() => handleRemoveComposerAttachment(attachment.id)}
+                      aria-label={`Remove ${attachment.label}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="composer-input-wrap">
+              <div className="composer-leading-tools" ref={composerMenuRef}>
+                <button
+                  type="button"
+                  className={`composer-plus-btn ${
+                    composerMenuOpen ? "composer-plus-btn--active" : ""
+                  }`}
+                  onClick={() => setComposerMenuOpen((current) => !current)}
+                  aria-label="Add sources"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 5v14M5 12h14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.9"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+
+                {composerMenuOpen && (
+                  <div className="composer-menu">
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      Photos
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={handleOpenCamera}
+                    >
+                      Camera
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Files
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => handleAddCloudSource("drive")}
+                    >
+                      Drive
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => handleAddCloudSource("notebook")}
+                    >
+                      Notebook
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <textarea
+                ref={inputRef}
+                id="chat-input"
+                className="composer-input composer-input--textarea"
+                placeholder={
+                  isImmersive
+                    ? "Ask Clidy anything. This view is built for longer chats."
+                    : "Talk to Clidy... 😊"
+                }
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e as unknown as FormEvent);
+                  }
+                }}
+                disabled={isStreaming || showOnboarding}
+                autoComplete="off"
+                autoFocus
+                rows={1}
+                aria-label="Message input"
+              />
+
+              <button
+                type="button"
+                className={`composer-voice-btn ${
+                  isListening ? "composer-voice-btn--active" : ""
+                }`}
+                onClick={handleToggleVoiceInput}
+                disabled={isStreaming || showOnboarding}
+                title={isListening ? "Stop voice input" : "Start voice input"}
+                aria-label={isListening ? "Stop voice input" : "Start voice input"}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 16a4 4 0 0 0 4-4V8a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Zm0 0v3m-5-6a5 5 0 0 0 10 0m-10 0v1a5 5 0 0 0 10 0v-1"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+              <button
+                className="composer-send"
+                type="submit"
+                disabled={isStreaming || showOnboarding || !input.trim()}
+                title="Send message"
+                aria-label="Send message"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </form>
       </div>
+
+      {cameraOpen && (
+        <div className="camera-modal" role="dialog" aria-modal="true" aria-label="Camera capture">
+          <div className="camera-modal__card">
+            <div className="camera-modal__header">
+              <div>
+                <p className="camera-modal__eyebrow">Live camera</p>
+                <h3 className="camera-modal__title">Capture for Clidy</h3>
+              </div>
+              <button
+                type="button"
+                className="camera-modal__close"
+                onClick={handleCloseCamera}
+                aria-label="Close camera"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="camera-modal__viewport">
+              <video
+                ref={cameraVideoRef}
+                className="camera-modal__video"
+                autoPlay
+                muted
+                playsInline
+              />
+              {cameraState !== "ready" && (
+                <div className="camera-modal__overlay">
+                  {cameraState === "loading"
+                    ? "Opening camera..."
+                    : "Camera preview unavailable"}
+                </div>
+              )}
+            </div>
+
+            <div className="camera-modal__actions">
+              <button
+                type="button"
+                className="camera-modal__btn camera-modal__btn--ghost"
+                onClick={handleCloseCamera}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="camera-modal__btn camera-modal__btn--primary"
+                onClick={handleCaptureFromCamera}
+                disabled={cameraState !== "ready"}
+              >
+                Use capture
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ToastContainer />
     </div>

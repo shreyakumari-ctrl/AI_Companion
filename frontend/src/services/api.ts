@@ -8,9 +8,29 @@ export interface MessageTurn {
   text: string;
 }
 
+export interface UserProfilePayload {
+  goals: string;
+  interests: string;
+}
+
 export interface ApiError {
   status: number;
   message: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  conversationId: string;
+  provider: string;
+  model: string | null;
+  memoryCount: number;
+  cacheHit: boolean;
+  context: {
+    userId: string | null;
+    tonePreference: string;
+    mood: string;
+  };
+  timestamp: string;
 }
 
 export interface ChatStreamMeta {
@@ -119,6 +139,38 @@ function consumeSseEventBlock(
 
   onChunk(data.replace(/\\n/g, "\n"));
   return false;
+}
+
+export async function sendMessage(
+  message: string,
+  personality: PersonalityPreset,
+  history: MessageTurn[],
+  userProfile: UserProfilePayload,
+  conversationId?: string | null,
+): Promise<ChatResponse> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history: history.slice(-5),
+        conversationId,
+        userProfile,
+        ...getPersonalityPayload(personality),
+      }),
+    });
+  } catch {
+    throw normalizeApiError(503, "Network request failed.");
+  }
+
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+
+  return (await response.json()) as ChatResponse;
 }
 
 export async function sendMessageStream(

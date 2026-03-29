@@ -8,32 +8,40 @@ import { personalityConfigs } from "@/lib/chatPersonality";
 type OnboardingSliderProps = {
   open: boolean;
   personality: PersonalityPreset;
+  goals: string;
+  interests: string;
   onPersonalityChange: (value: PersonalityPreset) => void;
+  onGoalsChange: (value: string) => void;
+  onInterestsChange: (value: string) => void;
   onFinish: () => void;
 };
 
 const steps = [
   {
     eyebrow: "Step 1",
-    title: "Build your Clidy vibe",
-    body: "Set the tone before your first message so the chat feels like your space from the jump.",
+    title: "What are your academic goals?",
+    body: "Tell Clidy what you're working toward so the chat feels useful from the very first reply.",
   },
   {
     eyebrow: "Step 2",
-    title: "Pick your companion energy",
-    body: "Friendly, funny, or motivational. You can switch it later, but this sets the first impression.",
+    title: "What are your interests?",
+    body: "Share a few interests so future replies can feel more personal and relevant.",
   },
   {
     eyebrow: "Step 3",
-    title: "You’re ready to talk",
-    body: "Clidy streams replies live, renders markdown cleanly, and throws clear toasts when the API acts up.",
+    title: "Choose Clidy's personality",
+    body: "Pick the tone you want. You can change it later without changing the chat layout.",
   },
 ];
 
 export default function OnboardingSlider({
   open,
   personality,
+  goals,
+  interests,
   onPersonalityChange,
+  onGoalsChange,
+  onInterestsChange,
   onFinish,
 }: OnboardingSliderProps) {
   const [step, setStep] = useState(0);
@@ -45,7 +53,12 @@ export default function OnboardingSlider({
   const activeStep = steps[step];
 
   return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div
+      className="onboarding-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+    >
       <div className="onboarding-card">
         <div className="onboarding-progress">
           {steps.map((_, index) => (
@@ -63,7 +76,33 @@ export default function OnboardingSlider({
           </h2>
           <p className="onboarding-copy">{activeStep.body}</p>
 
+          {step === 0 && (
+            <label className="onboarding-field">
+              <span className="onboarding-field__label">Academic goals</span>
+              <textarea
+                className="onboarding-field__input onboarding-field__input--textarea"
+                value={goals}
+                onChange={(event) => onGoalsChange(event.target.value)}
+                placeholder="Examples: ace my semester exams, improve coding, stay consistent with revision..."
+                rows={4}
+              />
+            </label>
+          )}
+
           {step === 1 && (
+            <label className="onboarding-field">
+              <span className="onboarding-field__label">Interests</span>
+              <textarea
+                className="onboarding-field__input onboarding-field__input--textarea"
+                value={interests}
+                onChange={(event) => onInterestsChange(event.target.value)}
+                placeholder="Examples: AI, productivity, design, fitness, writing, startups..."
+                rows={4}
+              />
+            </label>
+          )}
+
+          {step === 2 && (
             <>
               <PersonalitySelector
                 selected={personality}
@@ -73,15 +112,16 @@ export default function OnboardingSlider({
                 <h3>{personalityConfigs[personality].onboardingTitle}</h3>
                 <p>{personalityConfigs[personality].onboardingCopy}</p>
               </div>
+              <div className="onboarding-checklist">
+                <div className="onboarding-check">Goals saved for future chats</div>
+                <div className="onboarding-check">
+                  Interests stored locally on this device
+                </div>
+                <div className="onboarding-check">
+                  Personality applied to your next reply
+                </div>
+              </div>
             </>
-          )}
-
-          {step === 2 && (
-            <div className="onboarding-checklist">
-              <div className="onboarding-check">Live streaming reply bubbles</div>
-              <div className="onboarding-check">Markdown-ready AI responses</div>
-              <div className="onboarding-check">Clear error toasts and retry flow</div>
-            </div>
           )}
         </div>
 
