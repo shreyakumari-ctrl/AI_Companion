@@ -60,14 +60,14 @@ function normalizeApiError(status: number, rawMessage: string) {
   if (status === 429 || /quota|rate limit|resource_exhausted/i.test(message)) {
     return {
       status,
-      message: "Clidy hit a rate limit. Give it a minute and try again.",
+      message: "Clizel hit a rate limit. Give it a sec and try again.",
     } satisfies ApiError;
   }
 
   if (status === 503 || /unavailable|network|connection|server/i.test(message)) {
     return {
       status,
-      message: "Clidy can't reach the server right now. Check the backend and try again.",
+      message: "Clizel can't reach the server right now. Check the backend and try again.",
     } satisfies ApiError;
   }
 
@@ -283,11 +283,88 @@ export interface ProfilePayload {
   bio: string;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  name: string | null;
+  tonePreference: string;
+  mood: string;
+}
+
+export interface AuthSessionPayload {
+  user: AuthUser;
+  accessToken: string;
+  refreshToken: string;
+  sessionId: string;
+  accessTokenExpiresInMinutes: number;
+  refreshTokenExpiresInDays: number;
+}
+
+export interface AuthStatePayload {
+  user: AuthUser;
+  sessionId: string;
+}
+
+const ACCESS_TOKEN_KEY = "clizel-access-token";
+
 async function parseJsonOrError(response: Response) {
   if (!response.ok) {
     throw await parseApiError(response);
   }
   return response.json();
+}
+
+function readAccessToken() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+function storeAccessToken(token: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (token) {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    return;
+  }
+
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
+function getAuthHeaders() {
+  const token = readAccessToken();
+
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+async function authRequest(path: string, init?: RequestInit) {
+  let response: Response;
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+
+  for (const [key, value] of Object.entries(getAuthHeaders())) {
+    headers.set(key, value);
+  }
+
+  try {
+    response = await fetch(`${API_URL}/api/auth${path}`, {
+      credentials: "include",
+      ...init,
+      headers,
+    });
+  } catch {
+    throw normalizeApiError(503, "Network request failed.");
+  }
+
+  return response;
 }
 
 export async function getActivityFeed(): Promise<ActivityItem[]> {
@@ -307,5 +384,45 @@ export async function updateProfile(profile: ProfilePayload): Promise<ProfilePay
     body: JSON.stringify(profile),
   });
 
+  return parseJsonOrError(response);
+}
+
+export async function loginUser(email: string, password: string): Promise<AuthSessionPayload> {
+  const response = await authRequest("/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  const session = (await parseJsonOrError(response)) as AuthSessionPayload;
+  storeAccessToken(session.accessToken);
+  return session;
+}
+
+export async function registerUser(
+  email: string,
+  password: string,
+  name?: string,
+): Promise<AuthSessionPayload> {
+  const response = await authRequest("/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  });
+  const session = (await parseJsonOrError(response)) as AuthSessionPayload;
+  storeAccessToken(session.accessToken);
+  return session;
+}
+
+export async function logoutUser(): Promise<void> {
+  const response = await authRequest("/logout", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken: null }),
+  });
+  await parseJsonOrError(response);
+  storeAccessToken(null);
+}
+
+export async function getCurrentUser(): Promise<AuthStatePayload> {
+  const response = await authRequest("/me", {
+    method: "GET",
+  });
   return parseJsonOrError(response);
 }

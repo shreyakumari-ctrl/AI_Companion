@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { getProfile, updateProfile } from "@/services/api";
 import { useChatStore } from "@/store/chatStore";
@@ -13,6 +13,8 @@ interface ProfileData {
 
 export default function ProfileSettings() {
   const pushToast = useChatStore((state) => state.pushToast);
+  const avatarDataUrl = useChatStore((state) => state.userProfile.avatarDataUrl);
+  const updateUserProfile = useChatStore((state) => state.updateUserProfile);
   const [profile, setProfile] = useState<ProfileData>({
     name: "",
     email: "",
@@ -21,6 +23,7 @@ export default function ProfileSettings() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     register,
@@ -40,6 +43,7 @@ export default function ProfileSettings() {
         if (!active) return;
         setProfile(data);
         reset(data);
+        updateUserProfile({ displayName: data.name });
         setLoading(false);
       })
       .catch((err) => {
@@ -53,7 +57,31 @@ export default function ProfileSettings() {
     return () => {
       active = false;
     };
-  }, [pushToast, reset]);
+  }, [pushToast, reset, updateUserProfile]);
+
+  function handleAvatarSelect(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      pushToast({ message: "Pick an image for your profile icon.", type: "error" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const nextAvatar = typeof reader.result === "string" ? reader.result : "";
+      if (!nextAvatar) {
+        return;
+      }
+      updateUserProfile({ avatarDataUrl: nextAvatar });
+      pushToast({ message: "Profile icon updated ✅", type: "info" });
+    };
+    reader.readAsDataURL(file);
+  }
 
   const onSubmit = async (data: ProfileData) => {
     const previousProfile = profile;
@@ -65,6 +93,7 @@ export default function ProfileSettings() {
       const updated = await updateProfile(data);
       setProfile(updated);
       reset(updated, { keepValues: true });
+      updateUserProfile({ displayName: updated.name });
       pushToast({ message: "Profile saved successfully.", type: "info" });
     } catch (err) {
       setProfile(previousProfile);
@@ -96,6 +125,52 @@ export default function ProfileSettings() {
         </div>
       ) : (
         <form className="profile-form" onSubmit={handleSubmit(onSubmit)} noValidate>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={handleAvatarSelect}
+          />
+
+          <div className="profile-avatar-editor">
+            <div className="profile-avatar-editor__media">
+              {avatarDataUrl ? (
+                <img
+                  src={avatarDataUrl}
+                  alt="Profile icon preview"
+                  className="profile-avatar-editor__image"
+                />
+              ) : (
+                <span className="profile-avatar-editor__fallback">
+                  {(profile.name || "C").trim().charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="profile-avatar-editor__copy">
+              <strong>Profile icon</strong>
+              <p>Upload a photo or aesthetic icon so your dashboard feels more yours.</p>
+            </div>
+            <div className="profile-avatar-editor__actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                Upload icon
+              </button>
+              {avatarDataUrl ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => updateUserProfile({ avatarDataUrl: "" })}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          </div>
+
           <div className="form-row">
             <label htmlFor="profile-name">Name</label>
             <input

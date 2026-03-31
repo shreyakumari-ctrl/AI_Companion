@@ -3,17 +3,26 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+  registerUser,
   sendMessageStream,
   type ChatAttachmentPayload,
   MessageTurn,
   ApiError,
+  type AuthUser,
 } from "@/services/api";
 import PersonalitySelector from "@/components/PersonalitySelector";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import MessageActions from "@/components/MessageActions";
 import OnboardingSlider from "@/components/OnboardingSlider";
+import CursorSmokeTrail from "@/components/CursorSmokeTrail";
+import SocialScriptCarousel from "@/components/SocialScriptCarousel";
 import ToastContainer from "@/components/ToastContainer";
 import TypingIndicator from "@/components/TypingIndicator";
+import ActivityFeed from "@/components/ActivityFeed";
+import ProfileSettings from "@/components/ProfileSettings";
 import { useChatStore } from "@/store/chatStore";
 import {
   getWelcomeMessage,
@@ -61,6 +70,102 @@ type ErrorViewState = {
 type ChatExperienceProps = {
   variant?: "panel" | "immersive";
 };
+
+type HistoryPreview = {
+  id: string;
+  title: string;
+  preview: string;
+};
+
+type DashboardTab = "chats" | "features" | "settings";
+
+function SparkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Zm7-3.5-.9-.5a7.5 7.5 0 0 0-.2-1.2l.7-.7a1 1 0 0 0 .2-1.1l-1-1.8a1 1 0 0 0-1-.5l-.9.2a7 7 0 0 0-1-.7l-.3-.9a1 1 0 0 0-.9-.7h-2a1 1 0 0 0-.9.7l-.3.9a7 7 0 0 0-1 .7l-.9-.2a1 1 0 0 0-1 .5l-1 1.8a1 1 0 0 0 .2 1.1l.7.7a7.5 7.5 0 0 0-.2 1.2l-.9.5a1 1 0 0 0-.5.9v2a1 1 0 0 0 .5.9l.9.5c.04.41.1.81.2 1.2l-.7.7a1 1 0 0 0-.2 1.1l1 1.8a1 1 0 0 0 1 .5l.9-.2c.31.27.65.5 1 .7l.3.9a1 1 0 0 0 .9.7h2a1 1 0 0 0 .9-.7l.3-.9c.35-.2.69-.43 1-.7l.9.2a1 1 0 0 0 1-.5l1-1.8a1 1 0 0 0-.2-1.1l-.7-.7c.1-.39.16-.79.2-1.2l.9-.5a1 1 0 0 0 .5-.9v-2a1 1 0 0 0-.5-.9Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ProfileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-7 8a7 7 0 0 1 14 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 7h16M4 12h16M4 17h16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function GridIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M10 6H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3M14 8l5 4-5 4M19 12H10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function takeNextDisplayToken(buffer: string, force = false) {
   if (!buffer) {
@@ -166,6 +271,17 @@ export default function ChatExperience({
   const [isListening, setIsListening] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
+  const [isOnline, setIsOnline] = useState(true);
+  const [isLagging, setIsLagging] = useState(false);
+  const [personalityMenuOpen, setPersonalityMenuOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [activePanelTab, setActivePanelTab] = useState<DashboardTab>("chats");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authPending, setAuthPending] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -182,6 +298,7 @@ export default function ChatExperience({
   const streamFinishedRef = useRef(false);
   const streamMessageIdRef = useRef<string | null>(null);
   const streamDrainResolverRef = useRef<(() => void) | null>(null);
+  const lastChunkAtRef = useRef(0);
 
   const isImmersive = variant === "immersive";
   const personality = userProfile.personality as PersonalityPreset;
@@ -194,6 +311,50 @@ export default function ChatExperience({
   useEffect(() => {
     setHasHydrated(true);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    getCurrentUser()
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+
+        setAuthUser(data.user);
+        updateUserProfile({
+          displayName: data.user.name ?? data.user.email ?? "Clizel User",
+        });
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+
+        setAuthUser(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [updateUserProfile]);
+
+  useEffect(() => {
+    if (!panelOpen) {
+      return;
+    }
+
+    function handlePanelEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPanelOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handlePanelEscape);
+    return () => {
+      window.removeEventListener("keydown", handlePanelEscape);
+    };
+  }, [panelOpen]);
 
   useEffect(() => {
     if (!hasHydrated || showOnboarding || messages.length > 0) {
@@ -254,11 +415,49 @@ export default function ChatExperience({
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setIsOnline(window.navigator.onLine);
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setIsLagging(false);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      if (!lastChunkAtRef.current) {
+        return;
+      }
+
+      setIsLagging(performance.now() - lastChunkAtRef.current > 1800);
+    }, 450);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isStreaming]);
+
   function resolveErrorState(apiError: ApiError): ErrorViewState {
     if (apiError.status === 429 || /rate limit|quota/i.test(apiError.message)) {
       return {
-        title: "Clidy hit a rate limit",
-        copy: "The backend is up, but the model is asking us to slow down for a moment. Give it a minute and retry.",
+        title: "Clizel hit a rate limit",
+        copy: "The backend is up, but the model is asking us to slow down for a sec. Give it a minute and retry.",
       };
     }
 
@@ -275,7 +474,7 @@ export default function ChatExperience({
     return {
       title: "Something went sideways",
       copy:
-        apiError.message || "The stream broke before Clidy could finish that thought.",
+        apiError.message || "The stream broke before Clizel could finish that thought.",
     };
   }
 
@@ -617,6 +816,8 @@ export default function ChatExperience({
     setInput("");
     setErrorState(null);
     setComposerMenuOpen(false);
+    lastChunkAtRef.current = performance.now();
+    setIsLagging(false);
 
     const priorHistory: MessageTurn[] = messages
       .filter(
@@ -640,6 +841,8 @@ export default function ChatExperience({
           interests: userProfile.interests.trim(),
         },
         (chunk) => {
+          lastChunkAtRef.current = performance.now();
+          setIsLagging(false);
           queueSmoothChunk(aiMessageId, chunk);
         },
         attachmentPayload,
@@ -664,6 +867,7 @@ export default function ChatExperience({
 
       cancelSmoothStream();
       markFailed(aiMessageId);
+      setIsLagging(false);
 
       setErrorState(resolveErrorState(apiErr));
       pushToast({
@@ -750,11 +954,123 @@ export default function ChatExperience({
     messages.length === 1 &&
     messages[0]?.sender === "ai" &&
     messages[0]?.status === "complete";
+  const historyItems: HistoryPreview[] = messages
+    .filter((message) => message.sender === "user")
+    .slice(-10)
+    .reverse()
+    .map((message, index) => ({
+      id: message.id,
+      title: index === 0 ? "Current chat" : `Chat ${index + 1}`,
+      preview: message.text,
+    }));
+  const shouldShowSocialCarousel =
+    (activeTool === "create" || composerAttachments.length > 0) &&
+    input.trim().length > 0;
+  const composerStatusLabel = !isOnline
+    ? "Reconnecting..."
+    : isLagging
+      ? "Network lag 😅"
+      : isListening
+        ? "Listening"
+        : isStreaming
+          ? "Clizel is cooking"
+          : activeTool;
+
+  function handleStartFreshChat() {
+    clearHistory();
+    setConversationId(null);
+    setErrorState(null);
+    setInput("");
+    addMessage({
+      sender: "ai",
+      text: getWelcomeMessage(personality),
+      status: "complete",
+    });
+    inputRef.current?.focus();
+    pushToast({
+      type: "info",
+      message: "Fresh chat ready",
+    });
+  }
+
+  function openPanel(tab: DashboardTab) {
+    setActivePanelTab(tab);
+    setPanelOpen(true);
+  }
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!authEmail.trim() || !authPassword.trim()) {
+      pushToast({
+        type: "error",
+        message: "Email and password are both needed.",
+      });
+      return;
+    }
+
+    setAuthPending(true);
+
+    try {
+      const session =
+        authMode === "login"
+          ? await loginUser(authEmail.trim(), authPassword)
+          : await registerUser(authEmail.trim(), authPassword, authName.trim() || undefined);
+
+      setAuthUser(session.user);
+      updateUserProfile({
+        displayName: session.user.name ?? session.user.email ?? "Clizel User",
+      });
+      setAuthPassword("");
+      pushToast({
+        type: "info",
+        message: authMode === "login" ? "Logged in successfully ✅" : "Account created ✅",
+      });
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(error.message)
+          : "Couldn't complete auth right now.";
+      pushToast({ type: "error", message });
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  async function handleLogout() {
+    setAuthPending(true);
+
+    try {
+      await logoutUser();
+      setAuthUser(null);
+      setAuthPassword("");
+      pushToast({
+        type: "info",
+        message: "Logged out cleanly",
+      });
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(error.message)
+          : "Logout didn't go through.";
+      pushToast({ type: "error", message });
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  const profileDisplayName =
+    authUser?.name ||
+    userProfile.displayName ||
+    authUser?.email ||
+    "You";
+  const profileInitial = profileDisplayName.trim().charAt(0).toUpperCase() || "Y";
 
   return (
     <div
       className={`chat-shell ${isImmersive ? "chat-shell--immersive" : ""}`.trim()}
     >
+      <CursorSmokeTrail />
       <OnboardingSlider
         open={showOnboarding}
         personality={personality}
@@ -771,30 +1087,427 @@ export default function ChatExperience({
       <div
         className={`chat-panel ${isImmersive ? "chat-panel--immersive" : ""}`.trim()}
       >
+        <div
+          className={`dashboard-drawer-backdrop ${panelOpen ? "is-open" : ""}`}
+          onClick={() => setPanelOpen(false)}
+          aria-hidden="true"
+        />
+        <aside
+          className={`dashboard-drawer ${panelOpen ? "is-open" : ""}`}
+          aria-hidden={!panelOpen}
+        >
+          <div className="dashboard-drawer__header">
+            <div>
+              <p className="dashboard-sidebar__eyebrow">Workspace</p>
+              <strong>Clizel panel</strong>
+            </div>
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              onClick={() => setPanelOpen(false)}
+              aria-label="Close panel"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="dashboard-panel-tabs" role="tablist" aria-label="Dashboard panel">
+            {[
+              ["chats", "Chats"],
+              ["features", "Features"],
+              ["settings", "Settings"],
+            ].map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                className={`dashboard-panel-tab ${
+                  activePanelTab === tab ? "is-active" : ""
+                }`}
+                onClick={() => setActivePanelTab(tab as DashboardTab)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="dashboard-drawer__body">
+            <div className="dashboard-panel-home">
+              <Link
+                href="/"
+                className="dashboard-feature-card__action dashboard-feature-card__action--link"
+                onClick={() => setPanelOpen(false)}
+              >
+                Home
+              </Link>
+            </div>
+
+            {activePanelTab === "chats" ? (
+              <div className="dashboard-panel-stack">
+                <button
+                  type="button"
+                  className="dashboard-new-chat"
+                  onClick={() => {
+                    handleStartFreshChat();
+                    setPanelOpen(false);
+                  }}
+                >
+                  <SparkIcon />
+                  <span>New Chat</span>
+                </button>
+
+                <div className="dashboard-sidebar__section">
+                  <p className="dashboard-sidebar__label">Recent Chats</p>
+                  <div className="dashboard-history">
+                    {historyItems.length ? (
+                      historyItems.map((item, index) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`dashboard-history__item ${
+                            index === 0 ? "is-active" : ""
+                          }`}
+                          onClick={() => {
+                            handleRetryFromText(item.preview);
+                            setPanelOpen(false);
+                          }}
+                        >
+                          <strong>{item.title}</strong>
+                          <span>{item.preview}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="dashboard-history__empty">
+                        Your chats will show up here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {activePanelTab === "features" ? (
+              <div className="dashboard-panel-stack">
+                <div className="dashboard-feature-card">
+                  <p className="dashboard-sidebar__eyebrow">Quick prompt</p>
+                  <strong>Social script generator</strong>
+                  <span>
+                    Make swipeable replies for awkward chats, soft pivots, or funny exits.
+                  </span>
+                  <button
+                    type="button"
+                    className="dashboard-feature-card__action"
+                    onClick={() => {
+                      setActiveTool("create");
+                      setInput("Help me reply to this text without sounding dry.");
+                      setPanelOpen(false);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    Open create mode
+                  </button>
+                </div>
+
+                <div className="dashboard-feature-card">
+                  <p className="dashboard-sidebar__eyebrow">Analyze</p>
+                  <strong>Screenshot and file context</strong>
+                  <span>
+                    Drop files, photos, camera captures, or notes straight into the composer.
+                  </span>
+                  <button
+                    type="button"
+                    className="dashboard-feature-card__action"
+                    onClick={() => {
+                      setActiveTool("analyze");
+                      setPanelOpen(false);
+                    }}
+                  >
+                    Switch to analyze
+                  </button>
+                </div>
+
+                <div className="dashboard-feature-card">
+                  <p className="dashboard-sidebar__eyebrow">Chat view</p>
+                  <strong>{isImmersive ? "Compact view" : "Open full chat"}</strong>
+                  <span>
+                    Keep the same workflow, just switch between tighter and more focused layouts.
+                  </span>
+                  <Link
+                    href={isImmersive ? "/chat" : "/chat/live"}
+                    className="dashboard-feature-card__action dashboard-feature-card__action--link"
+                  >
+                    {isImmersive ? "Go compact" : "Go immersive"}
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+
+            {activePanelTab === "settings" ? (
+              <div className="dashboard-panel-stack dashboard-panel-stack--settings">
+                <section className="dashboard-profile-summary">
+                  <div className="dashboard-profile-summary__avatar">
+                    {userProfile.avatarDataUrl ? (
+                      <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                    ) : (
+                      <span>{profileInitial}</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="dashboard-sidebar__eyebrow">Profile</p>
+                    <strong>{profileDisplayName}</strong>
+                    <span>
+                      {authUser?.email ?? "Sign in to sync your account across sessions."}
+                    </span>
+                  </div>
+                </section>
+
+                <section className="dashboard-auth-card">
+                  <div className="dashboard-auth-card__header">
+                    <div>
+                      <p className="dashboard-sidebar__eyebrow">Account</p>
+                      <strong>{authUser ? "You're logged in" : "Login or register"}</strong>
+                    </div>
+                    {authUser ? (
+                      <button
+                        type="button"
+                        className="dashboard-auth-logout"
+                        onClick={handleLogout}
+                        disabled={authPending}
+                      >
+                        <LogoutIcon />
+                        <span>Logout</span>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {authUser ? (
+                    <p className="dashboard-auth-card__copy">
+                      Session is live for {authUser.email ?? "your account"}.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="dashboard-auth-toggle">
+                        <button
+                          type="button"
+                          className={authMode === "login" ? "is-active" : ""}
+                          onClick={() => setAuthMode("login")}
+                        >
+                          Login
+                        </button>
+                        <button
+                          type="button"
+                          className={authMode === "register" ? "is-active" : ""}
+                          onClick={() => setAuthMode("register")}
+                        >
+                          Register
+                        </button>
+                      </div>
+
+                      <form className="dashboard-auth-form" onSubmit={handleAuthSubmit}>
+                        {authMode === "register" ? (
+                          <input
+                            type="text"
+                            value={authName}
+                            onChange={(event) => setAuthName(event.target.value)}
+                            placeholder="Name"
+                            autoComplete="name"
+                          />
+                        ) : null}
+                        <input
+                          type="email"
+                          value={authEmail}
+                          onChange={(event) => setAuthEmail(event.target.value)}
+                          placeholder="Email"
+                          autoComplete="email"
+                        />
+                        <input
+                          type="password"
+                          value={authPassword}
+                          onChange={(event) => setAuthPassword(event.target.value)}
+                          placeholder="Password"
+                          autoComplete={
+                            authMode === "login" ? "current-password" : "new-password"
+                          }
+                        />
+                        <button type="submit" className="btn btn-primary" disabled={authPending}>
+                          {authPending
+                            ? "Please wait..."
+                            : authMode === "login"
+                              ? "Login"
+                              : "Create account"}
+                        </button>
+                      </form>
+                    </>
+                  )}
+                </section>
+
+                <ProfileSettings />
+                <ActivityFeed />
+              </div>
+            ) : null}
+          </div>
+        </aside>
+        <div className="dashboard-layout">
+          <aside className="dashboard-sidebar">
+            <button
+              type="button"
+              className="dashboard-new-chat"
+              onClick={handleStartFreshChat}
+            >
+              <SparkIcon />
+              <span>New Chat</span>
+            </button>
+
+            <div className="dashboard-sidebar__section">
+              <p className="dashboard-sidebar__label">Recent Chats</p>
+              <div className="dashboard-history">
+                {historyItems.length ? (
+                  historyItems.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`dashboard-history__item ${
+                        index === 0 ? "is-active" : ""
+                      }`}
+                      onClick={() => handleRetryFromText(item.preview)}
+                    >
+                      <strong>{item.title}</strong>
+                      <span>{item.preview}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="dashboard-history__empty">
+                    Your chats will show up here.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="dashboard-sidebar__footer">
+              <button
+                type="button"
+                className="dashboard-sidebar__card"
+                onClick={() =>
+                  pushToast({ type: "info", message: "Profile panel coming soon" })
+                }
+              >
+                <div>
+                  <p className="dashboard-sidebar__eyebrow">Profile</p>
+                  <strong>{personality === "Motivational" ? "Direct mode" : `${personality} mode`}</strong>
+                </div>
+                <ProfileIcon />
+              </button>
+
+              <div
+                className={`dashboard-personality ${
+                  personalityMenuOpen ? "is-open" : ""
+                }`}
+              >
+                <button
+                  type="button"
+                  className="dashboard-sidebar__card"
+                  onClick={() =>
+                    setPersonalityMenuOpen((current) => !current)
+                  }
+                >
+                  <div>
+                    <p className="dashboard-sidebar__eyebrow">AI Personality</p>
+                    <strong>{personality === "Motivational" ? "Direct" : personality}</strong>
+                  </div>
+                  <span>{personalityMenuOpen ? "−" : "+"}</span>
+                </button>
+                <PersonalitySelector
+                  selected={personality}
+                  onSelect={(id) =>
+                    updateUserProfile({ personality: id as PersonalityPreset })
+                  }
+                  disabled={isStreaming || showOnboarding}
+                />
+              </div>
+
+              <button
+                type="button"
+                className="dashboard-sidebar__card dashboard-sidebar__card--muted"
+                onClick={() =>
+                  pushToast({ type: "info", message: "Settings panel coming soon" })
+                }
+              >
+                <div>
+                  <p className="dashboard-sidebar__eyebrow">Settings</p>
+                  <strong>Preferences & controls</strong>
+                </div>
+                <SettingsIcon />
+              </button>
+            </div>
+          </aside>
+
+          <div className="dashboard-content">
         <header className="chat-header">
-          <Link href="/" className="back-btn" title="Back to home">
-            ←
-          </Link>
           <div className="chat-header-info">
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Open panel"
+              onClick={() => openPanel("chats")}
+            >
+              <MenuIcon />
+            </button>
             <div className="chat-avatar">✨</div>
             <div>
-              <h1 className="chat-title">Clidy AI</h1>
+              <h1 className="chat-title">Clizel AI</h1>
               <div className="chat-status">
                 <span className="status-dot" />{" "}
-                {isImmersive ? "Focus mode, full chat flow" : "Always here for you"}
+                {!isOnline
+                  ? "Reconnecting..."
+                  : isLagging
+                    ? "Network lag 😅"
+                    : isImmersive
+                      ? "Focus mode, full chat flow"
+                      : "Always here for you"}
               </div>
             </div>
           </div>
           <div className="chat-header-actions">
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Features"
+              onClick={() => openPanel("features")}
+            >
+              <GridIcon />
+            </button>
             <Link
               href={isImmersive ? "/chat" : "/chat/live"}
               className="chat-mode-link"
             >
               {isImmersive ? "Compact view" : "Open full chat"}
             </Link>
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Settings"
+              onClick={() => openPanel("settings")}
+            >
+              <SettingsIcon />
+            </button>
+            <button
+              type="button"
+              className="dashboard-profile-pill"
+              title="Profile"
+              onClick={() => openPanel("settings")}
+            >
+              <span className="dashboard-profile-pill__avatar">
+                {userProfile.avatarDataUrl ? (
+                  <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                ) : (
+                  profileInitial
+                )}
+              </span>
+              <span className="dashboard-profile-pill__label">
+                {authUser ? "Signed in" : "Guest"}
+              </span>
+            </button>
           </div>
         </header>
-
         <PersonalitySelector
           selected={personality}
           onSelect={(id) =>
@@ -802,24 +1515,21 @@ export default function ChatExperience({
           }
           disabled={isStreaming || showOnboarding}
         />
-
         <div className="chat-messages">
           <div className="chat-log" aria-live="polite" aria-label="Chat messages">
             {hasOnlyWelcomeMessage && !errorState && (
               <section className="chat-blank">
-                <p className="chat-blank__eyebrow">
-                  {isImmersive ? "Full chat room is live" : "Streaming is live now"}
-                </p>
+                <p className="chat-blank__eyebrow">Start a new conversation</p>
                 <h2 className="chat-blank__title">
                   {isImmersive
-                    ? "Talk without the cramped modal feel"
-                    : "Start the first real convo"}
+                    ? "What can Clizel help with today?"
+                    : "Start a new conversation"}
                 </h2>
                 <p className="chat-blank__copy">
-                  Ask for advice, drop a messy thought, or paste markdown. Clidy now
-                  streams replies with a smoother pace, keeps the same
-                  conversation context alive across turns, and formats completed
-                  AI messages cleanly.
+                  Ask for advice, drop a messy thought, or paste markdown. Clizel
+                  keeps the convo flowing with smoother streaming, better context
+                  memory, and cleaner replies that feel more like texting a best
+                  friend than using a bot.
                 </p>
                 <div className="chat-blank__prompts">
                   <button
@@ -868,6 +1578,10 @@ export default function ChatExperience({
                 key={msg.id}
                 className={`bubble bubble--${msg.sender === "ai" ? "ai" : "user"} ${
                   msg.status === "failed" ? "bubble--failed" : ""
+                } ${
+                  msg.status === "pending" || msg.status === "streaming"
+                    ? "bubble--streaming"
+                    : ""
                 }`}
               >
                 {msg.sender === "ai" && (
@@ -908,7 +1622,7 @@ export default function ChatExperience({
                   ) : (
                     <>
                   {msg.sender === "ai" && !msg.text ? (
-                    <TypingIndicator label="Thinking..." />
+                    <TypingIndicator label="Clizel is cooking something 🔥..." />
                   ) : msg.sender === "ai" ? (
                     <MarkdownRenderer content={msg.text} />
                   ) : (
@@ -919,7 +1633,7 @@ export default function ChatExperience({
 
                   {msg.status === "streaming" && (
                     <span className="bubble-status bubble-status--live">
-                      Clidy is streaming...
+                      Clizel is typing it out...
                     </span>
                   )}
 
@@ -1009,10 +1723,27 @@ export default function ChatExperience({
                   </button>
                 ))}
               </div>
-              <div className="composer-status-badge">
-                {isListening ? "Listening" : activeTool}
+              <div
+                className={`composer-status-badge ${
+                  !isOnline || isLagging ? "composer-status-badge--alert" : ""
+                }`}
+              >
+                {composerStatusLabel}
               </div>
             </div>
+
+            {shouldShowSocialCarousel && (
+              <SocialScriptCarousel
+                prompt={input}
+                hasAttachmentContext={composerAttachments.length > 0}
+                onCopy={(label) =>
+                  pushToast({
+                    type: "info",
+                    message: `${label} copied ✅`,
+                  })
+                }
+              />
+            )}
 
             {composerAttachments.length > 0 && (
               <div className="composer-attachments" aria-label="Attached sources">
@@ -1112,12 +1843,10 @@ export default function ChatExperience({
               <textarea
                 ref={inputRef}
                 id="chat-input"
-                className="composer-input composer-input--textarea"
-                placeholder={
-                  isImmersive
-                    ? "Ask Clidy anything. This view is built for longer chats."
-                    : "Talk to Clidy... 😊"
-                }
+                className={`composer-input composer-input--textarea ${
+                  input.trim() ? "composer-input--active" : ""
+                }`}
+                placeholder="Ask anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -1169,6 +1898,8 @@ export default function ChatExperience({
             </div>
           </div>
         </form>
+          </div>
+        </div>
       </div>
 
       {cameraOpen && (
@@ -1177,7 +1908,7 @@ export default function ChatExperience({
             <div className="camera-modal__header">
               <div>
                 <p className="camera-modal__eyebrow">Live camera</p>
-                <h3 className="camera-modal__title">Capture for Clidy</h3>
+                <h3 className="camera-modal__title">Capture for Clizel</h3>
               </div>
               <button
                 type="button"

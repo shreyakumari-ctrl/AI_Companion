@@ -5,7 +5,7 @@ import React from "react";
 const personalities = [
   { id: "Friendly", label: "Friendly", emoji: "😊" },
   { id: "Funny", label: "Funny", emoji: "😄" },
-  { id: "Motivational", label: "Motivational", emoji: "🚀" },
+  { id: "Motivational", label: "Direct", emoji: "😐" },
 ];
 
 interface PersonalitySelectorProps {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
+import { normalizeBrandText } from "@/lib/brandText";
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +22,8 @@ export interface UserProfile {
   interests: string;
   personality: "Friendly" | "Funny" | "Motivational";
   onboardingCompleted: boolean;
+  displayName?: string;
+  avatarDataUrl?: string;
 }
 
 interface ChatStore {
@@ -86,7 +89,7 @@ export const useChatStore = create<ChatStore>()(
             message.id === id
               ? {
                   ...message,
-                  text,
+                  text: normalizeBrandText(text),
                   timestamp: Date.now(),
                 }
               : message,
@@ -99,7 +102,7 @@ export const useChatStore = create<ChatStore>()(
             m.id === id
               ? {
                   ...m,
-                  text: m.text + chunk,
+                  text: normalizeBrandText(m.text + chunk),
                   ...(m.status !== "streaming" && {
                     status: "streaming" as const,
                   }),
@@ -171,13 +174,14 @@ export const useChatStore = create<ChatStore>()(
         })),
     }),
     {
-      name: "clidy-chat-store",
+      name: "clizel-chat-store",
       storage: createJSONStorage(() => window.localStorage),
       partialize: (state) => ({
         messages: state.messages,
         conversationId: state.conversationId,
         userProfile: state.userProfile,
       }),
+      version: 2,
     },
   ),
 );

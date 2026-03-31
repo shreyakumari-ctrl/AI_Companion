@@ -25,7 +25,7 @@ const MessageBubble = ({ message, isStreaming, onEdit }: MessageBubbleProps) => 
   };
 
   return (
-    <article className={`bubble bubble--${message.sender === "ai" ? "ai" : "user"}`}>
+    <article className={`bubble bubble--${message.sender === "ai" ? "ai" : "user"} bubble--interactive`}>
       {message.sender === "ai" && <div className="bubble-avatar" aria-hidden="true">✨</div>}
       
       <div className="bubble-content">
@@ -47,12 +47,12 @@ const MessageBubble = ({ message, isStreaming, onEdit }: MessageBubbleProps) => 
           ) : (
             <>
               {message.sender === "ai" && !message.text ? (
-                <span className="bubble-status">Clidy is typing...</span>
+                <span className="bubble-status">Clizel is typing...</span>
               ) : (
                 <MarkdownRenderer content={message.text || "\u00A0"} />
               )}
               {isStreaming && message.sender === "ai" && (
-                <span className="bubble-status bubble-status--live">Clidy is streaming...</span>
+                <span className="bubble-status bubble-status--live">Clizel is streaming...</span>
               )}
             </>
           )}
@@ -68,6 +68,38 @@ const MessageBubble = ({ message, isStreaming, onEdit }: MessageBubbleProps) => 
       </div>
 
       {message.sender === "user" && <div className="bubble-avatar" aria-hidden="true">👤</div>}
+      <style jsx>{`
+        .bubble--interactive {
+          animation: messageFadeIn 0.28s ease-out both;
+        }
+        .bubble-content {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .bubble--interactive :global(.message-actions) {
+          opacity: 0;
+          transform: translateY(6px);
+          transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+          pointer-events: none;
+        }
+        .bubble--interactive:hover :global(.message-actions),
+        .bubble--interactive:focus-within :global(.message-actions) {
+          opacity: 1;
+          transform: translateY(0);
+          pointer-events: auto;
+        }
+        @keyframes messageFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </article>
   );
 };

@@ -32,13 +32,18 @@ const CodeBlock = ({ language, children }: CodeBlockProps) => {
           onClick={handleCopy}
           aria-label="Copy code block"
         >
-          {copied ? "Copied" : "Copy Code"}
+          {copied ? "Copied ✅" : "Copy Code"}
         </button>
       </div>
       <SyntaxHighlighter
         language={language || "text"}
         style={oneDark}
-        customStyle={{ margin: 0, borderRadius: "0 0 8px 8px" }}
+        customStyle={{
+          margin: 0,
+          borderRadius: "0 0 16px 16px",
+          padding: "1rem",
+          background: "#0f172a",
+        }}
       >
         {children}
       </SyntaxHighlighter>
