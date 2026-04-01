@@ -12,7 +12,7 @@ import { PersonalityPreset } from "../lib/chatPersonality";
 
 const Chat = () => {
   const [messages, setMessages] = useState<MessageTurn[]>([
-    { sender: "ai", text: "Hey! I'm Clizel ✨. How's your day going?" }
+    { sender: "ai", text: "Hey! I'm Clizel. How's your day going?" }
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -197,6 +197,21 @@ const Chat = () => {
         }
         .send-btn:disabled {
           opacity: 0.55;
+        }
+        :global([data-theme="light"]) .chat-page {
+          background:
+            radial-gradient(circle at top, rgba(124, 58, 237, 0.12), transparent 34%),
+            linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+        }
+        :global([data-theme="light"]) .chat-controls {
+          background: rgba(255, 255, 255, 0.82);
+          border-color: rgba(99, 102, 241, 0.14);
+          box-shadow: 0 16px 36px rgba(30, 41, 59, 0.12);
+        }
+        :global([data-theme="light"]) .input-field {
+          background: rgba(255, 255, 255, 0.96);
+          color: #0f172a;
+          border-color: rgba(99, 102, 241, 0.2);
         }
       `}</style>
     </div>

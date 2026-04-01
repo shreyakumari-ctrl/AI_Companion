@@ -26,7 +26,11 @@ const MessageBubble = ({ message, isStreaming, onEdit }: MessageBubbleProps) => 
 
   return (
     <article className={`bubble bubble--${message.sender === "ai" ? "ai" : "user"} bubble--interactive`}>
-      {message.sender === "ai" && <div className="bubble-avatar" aria-hidden="true">✨</div>}
+      {message.sender === "ai" && (
+        <div className="bubble-avatar" aria-hidden="true">
+          <img src="/logo-mark.png" alt="" className="app-logo-mark bubble-avatar__logo" />
+        </div>
+      )}
       
       <div className="bubble-content">
         <div className="bubble-body">
@@ -105,3 +109,4 @@ const MessageBubble = ({ message, isStreaming, onEdit }: MessageBubbleProps) => 
 };
 
 export default MessageBubble;
+

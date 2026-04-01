@@ -212,7 +212,7 @@ const MessageActions = ({
         <span className="action-icon">
           <CopyIcon />
         </span>
-        {copied && <span className="action-feedback">Copied ✅</span>}
+        {copied && <span className="action-feedback">Copied</span>}
       </button>
 
       <button
@@ -225,7 +225,7 @@ const MessageActions = ({
         <span className="action-icon">
           <ShareIcon />
         </span>
-        {shared && <span className="action-feedback">Shared ✨</span>}
+        {shared && <span className="action-feedback">Shared</span>}
       </button>
 
       {sender === "user" && onEdit && (
@@ -292,3 +292,4 @@ const MessageActions = ({
 };
 
 export default MessageActions;
+
