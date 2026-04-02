@@ -7,6 +7,8 @@ import { buildChatCacheKey, responseCache } from "./response-cache";
 import { normalizeBrandText } from "./brand-text";
 
 type ProviderName = keyof typeof providerRegistry;
+const PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
+const providerUnavailableUntil = new Map<ProviderName, number>();
 
 export type ChatExecutionInput = {
   message: string;
@@ -115,6 +117,76 @@ function modelForProvider(provider: string) {
 
 function buildFallbackReply(message: string) {
   return `Clizel fallback reply: I heard "${message}". The server is online, but the selected provider is unavailable right now, so we're in backup mode.`;
+}
+
+function getProviderCandidates(preferred: ProviderName): ProviderName[] {
+  const providers = Object.keys(providerRegistry) as ProviderName[];
+  return [preferred, ...providers.filter((provider) => provider !== preferred)];
+}
+
+function isNetworkResolutionError(error: unknown): boolean {
+  const stack: unknown[] = [error];
+  const seen = new Set<unknown>();
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (current instanceof Error) {
+      const err = current as Error & {
+        code?: string;
+        errno?: number | string;
+        cause?: unknown;
+      };
+      const code = String(err.code ?? "").toUpperCase();
+      const message = `${err.message ?? ""}`.toLowerCase();
+
+      if (
+        code === "ENOTFOUND" ||
+        code === "EAI_AGAIN" ||
+        code === "ECONNREFUSED" ||
+        code === "ECONNRESET" ||
+        code === "ETIMEDOUT" ||
+        /getaddrinfo|dns|fetch failed|network request failed|temporarily unavailable/.test(
+          message,
+        )
+      ) {
+        return true;
+      }
+
+      if (err.cause) {
+        stack.push(err.cause);
+      }
+    } else if (typeof current === "object" && current !== null) {
+      const maybeCause = (current as { cause?: unknown }).cause;
+      if (maybeCause) {
+        stack.push(maybeCause);
+      }
+    }
+  }
+
+  return false;
+}
+
+function isProviderCoolingDown(provider: ProviderName) {
+  const cooldownUntil = providerUnavailableUntil.get(provider);
+  if (!cooldownUntil) {
+    return false;
+  }
+
+  if (Date.now() >= cooldownUntil) {
+    providerUnavailableUntil.delete(provider);
+    return false;
+  }
+
+  return true;
+}
+
+function markProviderCoolingDown(provider: ProviderName) {
+  providerUnavailableUntil.set(provider, Date.now() + PROVIDER_COOLDOWN_MS);
 }
 
 function resolvePersonalityDefaults(personality?: ChatExecutionInput["personality"]) {
@@ -342,30 +414,53 @@ export async function executeChat(
   const memoryCount = prepared.inferenceRequest.history.length;
   const cached = responseCache.get(prepared.cacheKey);
 
-  let reply: string;
-  let provider = prepared.provider;
+  let reply = "";
+  let provider: string = prepared.provider;
   let cacheHit = false;
 
   if (cached) {
     reply = cached.reply;
-    provider = cached.provider as ProviderName;
+    provider = cached.provider;
     cacheHit = true;
-  } else if (!prepared.adapter.isAvailable()) {
-    reply = buildFallbackReply(params.message);
-    provider = "fallback" as ProviderName;
   } else {
-    try {
-      reply = normalizeBrandText(
-        (await prepared.adapter.generate(prepared.inferenceRequest)).trim(),
-      );
-      if (!reply) {
-        reply = buildFallbackReply(params.message);
-        provider = "fallback" as ProviderName;
+    let generated = false;
+
+    for (const candidate of getProviderCandidates(prepared.provider)) {
+      const adapter = providerRegistry[candidate];
+
+      if (!adapter?.isAvailable() || isProviderCoolingDown(candidate)) {
+        continue;
       }
-    } catch (error) {
-      console.error("Chat generation failed. Falling back to offline reply.", error);
+
+      try {
+        const candidateReply = normalizeBrandText(
+          (await adapter.generate(prepared.inferenceRequest)).trim(),
+        );
+
+        if (!candidateReply) {
+          continue;
+        }
+
+        reply = candidateReply;
+        provider = candidate;
+        generated = true;
+        break;
+      } catch (error) {
+        if (isNetworkResolutionError(error)) {
+          markProviderCoolingDown(candidate);
+          console.warn(
+            `Provider ${candidate} put on cooldown for ${Math.floor(
+              PROVIDER_COOLDOWN_MS / 60000,
+            )}m due to network/DNS error.`,
+          );
+        }
+        console.error(`Chat generation failed for provider ${candidate}.`, error);
+      }
+    }
+
+    if (!generated) {
       reply = normalizeBrandText(buildFallbackReply(params.message));
-      provider = "fallback" as ProviderName;
+      provider = "fallback";
     }
   }
 
@@ -388,7 +483,7 @@ export async function executeChat(
   return {
     reply,
     provider,
-    model: provider === "fallback" ? null : modelForProvider(prepared.provider),
+    model: provider === "fallback" ? null : modelForProvider(provider),
     conversationId,
     context: prepared.userContext,
     memoryCount,
@@ -404,45 +499,70 @@ export async function streamChat(
   const prepared = await prepareChatRequest(params, auth);
   const memoryCount = prepared.inferenceRequest.history.length;
   const cached = responseCache.get(prepared.cacheKey);
-  let provider = prepared.provider;
+  let provider: string = prepared.provider;
   let reply = "";
   let cacheHit = false;
 
   if (cached) {
     reply = cached.reply;
-    provider = cached.provider as ProviderName;
+    provider = cached.provider;
     cacheHit = true;
     emitCharacters(normalizeBrandText(reply), onChunk);
     reply = normalizeBrandText(reply);
-  } else if (!prepared.adapter.isAvailable()) {
-    reply = normalizeBrandText(buildFallbackReply(params.message));
-    provider = "fallback" as ProviderName;
-    emitCharacters(reply, onChunk);
   } else {
-    try {
-      await prepared.adapter.generateStream(prepared.inferenceRequest, (chunk) => {
-        if (!chunk) {
-          return;
-        }
+    let streamed = false;
 
-        const normalizedChunk = normalizeBrandText(chunk);
-        reply += normalizedChunk;
-        emitCharacters(normalizedChunk, onChunk);
-      });
-    } catch (error) {
-      console.error("Streaming generation failed. Falling back to offline reply.", error);
+    for (const candidate of getProviderCandidates(prepared.provider)) {
+      const adapter = providerRegistry[candidate];
 
-      if (!reply) {
-        reply = normalizeBrandText(buildFallbackReply(params.message));
-        provider = "fallback" as ProviderName;
-        emitCharacters(reply, onChunk);
+      if (!adapter?.isAvailable() || isProviderCoolingDown(candidate)) {
+        continue;
       }
+
+      let candidateReply = "";
+
+      try {
+        await adapter.generateStream(prepared.inferenceRequest, (chunk) => {
+          if (!chunk) {
+            return;
+          }
+
+          const normalizedChunk = normalizeBrandText(chunk);
+          candidateReply += normalizedChunk;
+          emitCharacters(normalizedChunk, onChunk);
+        });
+      } catch (error) {
+        if (isNetworkResolutionError(error)) {
+          markProviderCoolingDown(candidate);
+          console.warn(
+            `Provider ${candidate} put on cooldown for ${Math.floor(
+              PROVIDER_COOLDOWN_MS / 60000,
+            )}m due to network/DNS error.`,
+          );
+        }
+        console.error(`Streaming generation failed for provider ${candidate}.`, error);
+      }
+
+      if (!candidateReply.trim()) {
+        continue;
+      }
+
+      reply = candidateReply;
+      provider = candidate;
+      streamed = true;
+      break;
+    }
+
+    if (!streamed && !reply) {
+      reply = normalizeBrandText(buildFallbackReply(params.message));
+      provider = "fallback";
+      emitCharacters(reply, onChunk);
     }
   }
 
   if (!reply.trim()) {
     reply = normalizeBrandText(buildFallbackReply(params.message));
-    provider = "fallback" as ProviderName;
+    provider = "fallback";
   }
 
   if (!cacheHit && reply.trim()) {
@@ -463,7 +583,7 @@ export async function streamChat(
 
   return {
     provider,
-    model: provider === "fallback" ? null : modelForProvider(prepared.provider),
+    model: provider === "fallback" ? null : modelForProvider(provider),
     conversationId,
     context: prepared.userContext,
     memoryCount,

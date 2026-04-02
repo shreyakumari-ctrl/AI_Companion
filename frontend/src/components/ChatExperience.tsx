@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   getCurrentUser,
   loginUser,
@@ -118,21 +118,6 @@ function SettingsIcon() {
   );
 }
 
-function ProfileIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-7 8a7 7 0 0 1 14 0"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function MenuIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -155,6 +140,66 @@ function GridIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M11 5a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm8 14-3.2-3.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CustomizeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 7h9M4 17h6m7-10v10m0-10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-7 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 11.5 12 5l8 6.5M6.5 10.8V19h11v-8.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -333,6 +378,7 @@ function createComposerAttachment(
 export default function ChatExperience({
   variant = "panel",
 }: ChatExperienceProps) {
+  const router = useRouter();
   const RecognitionAPI =
     typeof window !== "undefined"
       ? ((window as Window & {
@@ -376,8 +422,8 @@ export default function ChatExperience({
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [isOnline, setIsOnline] = useState(true);
   const [isLagging, setIsLagging] = useState(false);
-  const [personalityMenuOpen, setPersonalityMenuOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [drawerSettingsOpen, setDrawerSettingsOpen] = useState(false);
   const [activePanelTab, setActivePanelTab] = useState<DashboardTab>("chats");
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("profileUpdate");
@@ -472,6 +518,7 @@ export default function ChatExperience({
 
   useEffect(() => {
     if (!panelOpen) {
+      setDrawerSettingsOpen(false);
       return;
     }
 
@@ -925,42 +972,21 @@ export default function ChatExperience({
     });
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || isStreaming || showOnboarding) {
-      return;
-    }
-
-    addMessage({
-      sender: "user",
-      text,
-      status: "complete",
-    });
-
+  async function streamAssistantReply(
+    text: string,
+    history: MessageTurn[],
+    attachmentPayload: ChatAttachmentPayload[] = [],
+    clearAttachmentsOnSuccess = false,
+  ) {
     const aiMessageId = addMessage({
       sender: "ai",
       text: "",
       status: "pending",
     });
 
-    setInput("");
     setErrorState(null);
-    setComposerMenuOpen(false);
     lastChunkAtRef.current = performance.now();
     setIsLagging(false);
-
-    const priorHistory: MessageTurn[] = messages
-      .filter(
-        (message) =>
-          message.text.trim().length > 0 && message.status !== "failed",
-      )
-      .map((message) => ({
-        sender: message.sender,
-        text: message.text,
-      }));
-    const history: MessageTurn[] = [...priorHistory, { sender: "user", text }];
-    const attachmentPayload = buildAttachmentPayload(composerAttachments);
 
     try {
       const streamMeta = await sendMessageStream(
@@ -989,7 +1015,9 @@ export default function ChatExperience({
 
       if (streamMeta || streamBufferRef.current || streamMessageIdRef.current === null) {
         markComplete(aiMessageId);
-        clearComposerAttachments();
+        if (clearAttachmentsOnSuccess) {
+          clearComposerAttachments();
+        }
       } else {
         removeMessage(aiMessageId);
       }
@@ -1009,6 +1037,37 @@ export default function ChatExperience({
     } finally {
       inputRef.current?.focus();
     }
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || isStreaming || showOnboarding) {
+      return;
+    }
+
+    addMessage({
+      sender: "user",
+      text,
+      status: "complete",
+    });
+
+    setInput("");
+    setErrorState(null);
+    setComposerMenuOpen(false);
+
+    const priorHistory: MessageTurn[] = messages
+      .filter(
+        (message) =>
+          message.text.trim().length > 0 && message.status !== "failed",
+      )
+      .map((message) => ({
+        sender: message.sender,
+        text: message.text,
+      }));
+    const history: MessageTurn[] = [...priorHistory, { sender: "user", text }];
+    const attachmentPayload = buildAttachmentPayload(composerAttachments);
+    await streamAssistantReply(text, history, attachmentPayload, true);
   }
 
   function handleRetry() {
@@ -1034,16 +1093,49 @@ export default function ChatExperience({
     setEditingText("");
   }
 
-  function handleSaveEditMessage() {
+  async function handleSaveEditMessage() {
     const nextText = editingText.trim();
 
-    if (!editingMessageId || !nextText) {
+    if (!editingMessageId || !nextText || isStreaming) {
       return;
     }
+
+    const editedMessageIndex = messages.findIndex(
+      (message) => message.id === editingMessageId && message.sender === "user",
+    );
 
     updateMessage(editingMessageId, nextText);
     setEditingMessageId(null);
     setEditingText("");
+
+    if (editedMessageIndex === -1) {
+      return;
+    }
+
+    const staleMessages = messages.slice(editedMessageIndex + 1);
+    staleMessages.forEach((message) => {
+      removeMessage(message.id);
+    });
+
+    const priorHistory: MessageTurn[] = messages
+      .slice(0, editedMessageIndex)
+      .filter(
+        (message) =>
+          message.text.trim().length > 0 && message.status !== "failed",
+      )
+      .map((message) => ({
+        sender: message.sender,
+        text: message.text,
+      }));
+
+    const history: MessageTurn[] = [...priorHistory, { sender: "user", text: nextText }];
+
+    pushToast({
+      type: "info",
+      message: "Regenerating response from your edited message...",
+    });
+
+    await streamAssistantReply(nextText, history);
   }
 
   function handleRetryFromText(text: string) {
@@ -1124,6 +1216,20 @@ export default function ChatExperience({
     });
   }
 
+  function handleWorkspaceAction(
+    action: "search" | "customize",
+  ) {
+    if (action === "search") {
+      setActiveTool("search");
+      inputRef.current?.focus();
+      return;
+    }
+
+    if (action === "customize") {
+      openSettingsSection("profileUpdate");
+    }
+  }
+
   function openPanel(tab: DashboardTab, settingsTab?: SettingsTab) {
     setActivePanelTab(tab);
     if (tab === "settings" && settingsTab) {
@@ -1173,6 +1279,11 @@ export default function ChatExperience({
       type: "info",
       message: `Theme switched to ${themeMode === "dark" ? "light" : "dark"} mode`,
     });
+  }
+
+  function handleGoHome() {
+    setPanelOpen(false);
+    router.push("/");
   }
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1276,8 +1387,16 @@ export default function ChatExperience({
         >
           <div className="dashboard-drawer__header">
             <div>
-              <p className="dashboard-sidebar__eyebrow">Workspace</p>
-              <strong>Clizel panel</strong>
+              <button
+                type="button"
+                className="dashboard-drawer__home-icon"
+                onClick={handleGoHome}
+                aria-label="Home"
+                title="Home"
+              >
+                <HomeIcon />
+              </button>
+              <strong>Clizel</strong>
             </div>
             <button
               type="button"
@@ -1289,52 +1408,64 @@ export default function ChatExperience({
             </button>
           </div>
 
-          <div className="dashboard-panel-tabs" role="tablist" aria-label="Dashboard panel">
-            {[
-              ["chats", "Chats"],
-              ["features", "Features"],
-              ["settings", "Settings"],
-            ].map(([tab, label]) => (
+          <div className="dashboard-drawer__body">
+            <div className="workspace-quick-actions workspace-quick-actions--drawer">
               <button
-                key={tab}
                 type="button"
-                className={`dashboard-panel-tab ${
-                  activePanelTab === tab ? "is-active" : ""
+                className={`workspace-quick-action ${
+                  activePanelTab === "chats" ? "is-active" : ""
                 }`}
+                onClick={() => setActivePanelTab("chats")}
+              >
+                <ChatIcon />
+                <span>Chats</span>
+              </button>
+              <button
+                type="button"
+                className={`workspace-quick-action ${
+                  activePanelTab === "features" ? "is-active" : ""
+                }`}
+                onClick={() => setActivePanelTab("features")}
+              >
+                <GridIcon />
+                <span>Features</span>
+              </button>
+              <button
+                type="button"
+                className="workspace-quick-action"
                 onClick={() => {
-                  setActivePanelTab(tab as DashboardTab);
+                  handleStartFreshChat();
+                  setPanelOpen(false);
                 }}
               >
-                {label}
+                <SparkIcon />
+                <span>New chat</span>
               </button>
-            ))}
-          </div>
-
-          <div className="dashboard-drawer__body">
-            <div className="dashboard-panel-home">
-              <Link
-                href="/"
-                className="dashboard-feature-card__action dashboard-feature-card__action--link"
-                onClick={() => setPanelOpen(false)}
+              <button
+                type="button"
+                className="workspace-quick-action"
+                onClick={() => {
+                  handleWorkspaceAction("search");
+                  setPanelOpen(false);
+                }}
               >
-                Home
-              </Link>
+                <SearchIcon />
+                <span>Search</span>
+              </button>
+              <button
+                type="button"
+                className="workspace-quick-action"
+                onClick={() => {
+                  handleWorkspaceAction("customize");
+                }}
+              >
+                <CustomizeIcon />
+                <span>Customize</span>
+              </button>
             </div>
 
             {activePanelTab === "chats" ? (
-              <div className="dashboard-panel-stack">
-                <button
-                  type="button"
-                  className="dashboard-new-chat"
-                  onClick={() => {
-                    handleStartFreshChat();
-                    setPanelOpen(false);
-                  }}
-                >
-                  <SparkIcon />
-                  <span>New Chat</span>
-                </button>
-
+              <div className="dashboard-panel-stack dashboard-panel-stack--chats">
                 <div className="dashboard-sidebar__section">
                   <p className="dashboard-sidebar__label">Recent Chats</p>
                   <div className="dashboard-history">
@@ -1407,241 +1538,197 @@ export default function ChatExperience({
 
               </div>
             ) : null}
+          </div>
 
-            {activePanelTab === "settings" ? (
-              <div className="dashboard-panel-stack dashboard-panel-stack--settings">
-                <div className="dashboard-settings-menu">
-                  {[
-                    ["profile", "Profile"],
-                    ["profileUpdate", "Profile Update"],
-                    ["account", authUser ? "Account / Logout" : "Login / Register"],
-                    ["activity", "Activity Feed"],
-                    ["appearance", "Appearance"],
-                  ].map(([tab, label]) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      className="dashboard-settings-link"
-                      onClick={() => openSettingsSection(tab as SettingsTab)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                  {authUser ? (
-                    <button
-                      type="button"
-                      className="dashboard-settings-link dashboard-settings-link--danger"
-                      onClick={handleLogout}
-                      disabled={authPending}
-                    >
-                      {authPending ? "Logging out..." : "Logout"}
-                    </button>
-                  ) : null}
-                </div>
-
-                {activeSettingsTab === "profile" ? (
-                  <section className="dashboard-profile-summary">
-                    <div className="dashboard-profile-summary__avatar">
-                      {userProfile.avatarDataUrl ? (
-                        <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
-                      ) : (
-                        <span>{profileInitial}</span>
-                      )}
-                    </div>
-                    <div>
-                      <p className="dashboard-sidebar__eyebrow">Profile</p>
-                      <strong>{profileDisplayName}</strong>
-                      <span>
-                        {authUser?.email ?? "Sign in to sync your account across sessions."}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="dashboard-feature-card__action dashboard-feature-card__action--link"
-                      onClick={openProfileUpdateModal}
-                    >
-                      Profile Update
-                    </button>
-                  </section>
-                ) : null}
-
-                {activeSettingsTab === "activity" ? <ActivityFeed /> : null}
-
-                {activeSettingsTab === "appearance" ? (
-                  <section className="dashboard-theme-card">
-                    <div className="dashboard-theme-card__copy">
-                      <p className="dashboard-sidebar__eyebrow">Appearance</p>
-                      <strong>Theme mode</strong>
-                      <span>
-                        Default opens in dark mode. Switch anytime for your vibe.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className={`dashboard-theme-toggle ${
-                        themeMode === "dark" ? "is-dark" : "is-light"
-                      }`}
-                      onClick={handleToggleTheme}
-                      aria-label="Toggle theme"
-                      title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
-                    >
-                      <ThemeIcon mode={themeMode} />
-                      <span>{themeMode === "dark" ? "Dark" : "Light"}</span>
-                    </button>
-                  </section>
-                ) : null}
-
-                {activeSettingsTab === "account" ? (
-                  <section className="dashboard-auth-card">
-                    <div className="dashboard-auth-card__header">
-                      <div>
-                        <p className="dashboard-sidebar__eyebrow">Account</p>
-                        <strong>{authUser ? "You're logged in" : "Login or register"}</strong>
-                      </div>
-                      {authUser ? (
-                        <button
-                          type="button"
-                          className="dashboard-auth-logout"
-                          onClick={handleLogout}
-                          disabled={authPending}
-                        >
-                          <LogoutIcon />
-                          <span>Logout</span>
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {authUser ? (
-                      <p className="dashboard-auth-card__copy">
-                        Session is live for {authUser.email ?? "your account"}.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="dashboard-auth-card__copy">
-                          Open a dedicated login screen to continue with your account.
-                        </p>
-                        <div className="dashboard-auth-toggle dashboard-auth-toggle--links">
-                          <button
-                            type="button"
-                            className="is-active"
-                            onClick={() => openAuthModal("login")}
-                          >
-                            Open Login
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openAuthModal("register")}
-                          >
-                            Open Register
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </section>
-                ) : null}
+          <div className="dashboard-drawer__footer">
+            <button
+              type="button"
+              className={`workspace-quick-action ${
+                drawerSettingsOpen ? "is-active" : ""
+              }`}
+              onClick={() => setDrawerSettingsOpen((current) => !current)}
+            >
+              <SettingsIcon />
+              <span>Settings</span>
+            </button>
+            {drawerSettingsOpen ? (
+              <div className="dashboard-drawer-settings-menu">
+                <button
+                  type="button"
+                  className="workspace-quick-action workspace-quick-action--sub"
+                  onClick={openProfileUpdateModal}
+                >
+                  <UserAvatarIcon />
+                  <span>Profile Update</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-quick-action workspace-quick-action--sub"
+                  onClick={handleToggleTheme}
+                >
+                  <ThemeIcon mode={themeMode} />
+                  <span>{themeMode === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-quick-action workspace-quick-action--sub"
+                  onClick={() => openSettingsSection("activity")}
+                >
+                  <GridIcon />
+                  <span>Activity</span>
+                </button>
               </div>
             ) : null}
+            {authUser ? (
+              <button
+                type="button"
+                className="workspace-quick-action workspace-quick-action--danger"
+                onClick={() => {
+                  void handleLogout();
+                  setPanelOpen(false);
+                }}
+                disabled={authPending}
+              >
+                <LogoutIcon />
+                <span>{authPending ? "Logging out..." : "Logout"}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="workspace-quick-action"
+                onClick={() => openAuthModal("login")}
+              >
+                <UserAvatarIcon />
+                <span>Login</span>
+              </button>
+            )}
           </div>
         </aside>
         <div className="dashboard-layout">
-          <aside className="dashboard-sidebar">
-            <button
-              type="button"
-              className="dashboard-new-chat"
-              onClick={handleStartFreshChat}
-            >
-              <SparkIcon />
-              <span>New Chat</span>
-            </button>
-
-            <div className="dashboard-sidebar__section">
-              <p className="dashboard-sidebar__label">Recent Chats</p>
-              <div className="dashboard-history">
-                {historyItems.length ? (
-                  historyItems.map((item, index) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`dashboard-history__item ${
-                        index === 0 ? "is-active" : ""
-                      }`}
-                      onClick={() => handleRetryFromText(item.preview)}
-                    >
-                      <strong>{item.title}</strong>
-                      <span>{item.preview}</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="dashboard-history__empty">
-                    Your chats will show up here.
-                  </div>
-                )}
+          <aside className="dashboard-sidebar dashboard-sidebar--workspace">
+            <div className="workspace-shell">
+              <div className="workspace-brand">
+                <strong>Clizel</strong>
               </div>
-            </div>
 
-            <div className="dashboard-sidebar__footer">
-              <button
-                type="button"
-                className="dashboard-sidebar__card"
-                onClick={() => openSettingsSection("profile")}
-              >
-                <div>
-                  <p className="dashboard-sidebar__eyebrow">Profile</p>
-                  <strong>{personality === "Motivational" ? "Direct mode" : `${personality} mode`}</strong>
-                </div>
-                <ProfileIcon />
-              </button>
-
-              <div
-                className={`dashboard-personality ${
-                  personalityMenuOpen ? "is-open" : ""
-                }`}
-              >
+              <div className="workspace-quick-actions">
                 <button
                   type="button"
-                  className="dashboard-sidebar__card"
-                  onClick={() =>
-                    setPersonalityMenuOpen((current) => !current)
-                  }
+                  className="workspace-quick-action"
+                  onClick={handleStartFreshChat}
                 >
-                  <div>
-                    <p className="dashboard-sidebar__eyebrow">AI Personality</p>
-                    <strong>{personality === "Motivational" ? "Direct" : personality}</strong>
-                  </div>
-                  <span>{personalityMenuOpen ? "âˆ’" : "+"}</span>
+                  <SparkIcon />
+                  <span>New chat</span>
                 </button>
-                <PersonalitySelector
-                  selected={personality}
-                  onSelect={(id) =>
-                    updateUserProfile({ personality: id as PersonalityPreset })
-                  }
-                  disabled={isStreaming || showOnboarding}
-                />
+                <button
+                  type="button"
+                  className="workspace-quick-action"
+                  onClick={() => handleWorkspaceAction("search")}
+                >
+                  <SearchIcon />
+                  <span>Search</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-quick-action"
+                  onClick={() => handleWorkspaceAction("customize")}
+                >
+                  <CustomizeIcon />
+                  <span>Customize</span>
+                </button>
               </div>
 
-              <button
-                type="button"
-                className={`dashboard-sidebar__theme-icon ${
-                  themeMode === "dark" ? "is-dark" : "is-light"
-                }`}
-                onClick={handleToggleTheme}
-                title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
-                aria-label="Toggle theme"
-              >
-                <ThemeIcon mode={themeMode} />
-              </button>
+              <div className="workspace-main-links" aria-label="Workspace navigation">
+                <button type="button" className="workspace-main-link is-active">
+                  <ChatIcon />
+                  <span>Chats</span>
+                </button>
+              </div>
 
-              <button
-                type="button"
-                className="dashboard-sidebar__card dashboard-sidebar__card--muted"
-                onClick={() => openSettingsSection("profileUpdate")}
-              >
-                <div>
-                  <p className="dashboard-sidebar__eyebrow">Settings</p>
-                  <strong>Preferences & controls</strong>
+              <div className="dashboard-sidebar__section workspace-recents">
+                <p className="dashboard-sidebar__label">Recents</p>
+                <div className="dashboard-history">
+                  {historyItems.length ? (
+                    historyItems.map((item, index) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`dashboard-history__item ${
+                          index === 0 ? "is-active" : ""
+                        }`}
+                        onClick={() => handleRetryFromText(item.preview)}
+                      >
+                        <span>{item.preview || item.title}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="dashboard-history__empty">
+                      Your chats will show up here.
+                    </div>
+                  )}
                 </div>
-                <SettingsIcon />
-              </button>
+              </div>
+
+              <div className="workspace-user-footer">
+                <button
+                  type="button"
+                  className="workspace-user-pill"
+                  onClick={() => openSettingsSection("profile")}
+                  title="Open profile"
+                >
+                  <span className="workspace-user-pill__avatar">
+                    {userProfile.avatarDataUrl ? (
+                      <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                    ) : (
+                      profileInitial
+                    )}
+                  </span>
+                  <span className="workspace-user-pill__meta">
+                    <strong>{profileDisplayName}</strong>
+                    <small>{authUser ? "Logged in" : "Free plan"}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`dashboard-sidebar__theme-icon ${
+                    themeMode === "dark" ? "is-dark" : "is-light"
+                  }`}
+                  onClick={handleToggleTheme}
+                  title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+                  aria-label="Toggle theme"
+                >
+                  <ThemeIcon mode={themeMode} />
+                </button>
+                <button
+                  type="button"
+                  className="workspace-footer-icon"
+                  onClick={() => openSettingsSection("profileUpdate")}
+                  title="Settings"
+                  aria-label="Settings"
+                >
+                  <SettingsIcon />
+                </button>
+                {authUser ? (
+                  <button
+                    type="button"
+                    className="workspace-footer-auth"
+                    onClick={handleLogout}
+                    disabled={authPending}
+                  >
+                    <LogoutIcon />
+                    <span>{authPending ? "..." : "Logout"}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="workspace-footer-auth"
+                    onClick={() => openAuthModal("login")}
+                  >
+                    <UserAvatarIcon />
+                    <span>Login</span>
+                  </button>
+                )}
+              </div>
             </div>
           </aside>
 
@@ -1656,39 +1743,19 @@ export default function ChatExperience({
             >
               <MenuIcon />
             </button>
-            <div className="chat-avatar">
-              <img src="/logo-mark.png" alt="Clizel AI logo" className="app-logo-mark chat-avatar__logo" />
-            </div>
-            <div>
-              <h1 className="chat-title">Clizel AI</h1>
-              <div className="chat-status">
-                <span className="status-dot" />{" "}
-                {!isOnline
-                  ? "Reconnecting..."
-                  : isLagging
-                    ? "Network lag..."
-                    : isImmersive
-                      ? "Focus mode, full chat flow"
-                      : "Always here for you"}
-              </div>
+            <div className="chat-brand-lockup">
+              <img src="/logo-mark.png" alt="Clizel logo" className="app-logo-mark chat-brand-lockup__logo" />
+              <h1 className="chat-title">Clizel</h1>
             </div>
           </div>
           <div className="chat-header-actions">
             <button
               type="button"
               className="dashboard-icon-btn"
-              title="Features"
-              onClick={() => openPanel("features")}
+              title="New chat"
+              onClick={handleStartFreshChat}
             >
-              <GridIcon />
-            </button>
-            <button
-              type="button"
-              className="dashboard-icon-btn"
-              title="Settings"
-              onClick={() => openSettingsSection("profileUpdate")}
-            >
-              <SettingsIcon />
+              <SparkIcon />
             </button>
             <button
               type="button"
@@ -1782,12 +1849,6 @@ export default function ChatExperience({
                     : ""
                 }`}
               >
-                {msg.sender === "ai" && (
-                  <div className="bubble-avatar" aria-hidden="true">
-                    <img src="/logo-mark.png" alt="" className="app-logo-mark bubble-avatar__logo" />
-                  </div>
-                )}
-
                 <div className="bubble-body">
                   {editingMessageId === msg.id && msg.sender === "user" ? (
                     <div className="edit-message-container">
@@ -2187,6 +2248,9 @@ export default function ChatExperience({
             </button>
 
             <div className="auth-modal__body">
+              <div className="auth-modal__brand" aria-hidden="true">
+                <img src="/logo-mark.png" alt="" className="auth-modal__brand-logo" />
+              </div>
               <h3 className="auth-modal__title">Log in or sign up</h3>
               <p className="auth-modal__copy">
                 You&apos;ll get smarter responses and can upload files, images, and more.

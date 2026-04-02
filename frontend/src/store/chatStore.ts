@@ -177,11 +177,58 @@ export const useChatStore = create<ChatStore>()(
       name: "clizel-chat-store",
       storage: createJSONStorage(() => window.localStorage),
       partialize: (state) => ({
-        messages: state.messages,
         conversationId: state.conversationId,
         userProfile: state.userProfile,
       }),
-      version: 2,
+      version: 3,
+      migrate: (persistedState, version) => {
+        if (!persistedState || typeof persistedState !== "object") {
+          return {
+            messages: [],
+            isStreaming: false,
+            toasts: [],
+            conversationId: null,
+            userProfile: defaultUserProfile,
+          } satisfies Pick<
+            ChatStore,
+            "messages" | "isStreaming" | "toasts" | "conversationId" | "userProfile"
+          >;
+        }
+
+        const state = persistedState as {
+          conversationId?: string | null;
+          userProfile?: Partial<UserProfile>;
+        };
+
+        // v2 -> v3 and any older payloads: keep stable profile fields,
+        // drop large message history from persistence.
+        if (version <= 3) {
+          return {
+            messages: [],
+            isStreaming: false,
+            toasts: [],
+            conversationId: state.conversationId ?? null,
+            userProfile: {
+              ...defaultUserProfile,
+              ...(state.userProfile ?? {}),
+            },
+          } satisfies Pick<
+            ChatStore,
+            "messages" | "isStreaming" | "toasts" | "conversationId" | "userProfile"
+          >;
+        }
+
+        return {
+          messages: [],
+          isStreaming: false,
+          toasts: [],
+          conversationId: null,
+          userProfile: defaultUserProfile,
+        } satisfies Pick<
+          ChatStore,
+          "messages" | "isStreaming" | "toasts" | "conversationId" | "userProfile"
+        >;
+      },
     },
   ),
 );
