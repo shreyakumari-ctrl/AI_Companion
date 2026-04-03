@@ -4,26 +4,45 @@ import { env } from "./lib/env";
 const port = env.PORT;
 
 app.listen(port, () => {
-  console.log(`AI Companion backend listening on http://localhost:${port}`);
+  console.log(`🚀 AI Companion backend running on http://localhost:${port}`);
+
   console.log(
     env.GEMINI_API_KEY
-      ? `Gemini configured with model ${env.GEMINI_MODEL}`
-      : "Gemini not configured. Add GEMINI_API_KEY to backend/.env",
+      ? `✅ Gemini configured (${env.GEMINI_MODEL})`
+      : "❌ Gemini not configured",
   );
+
   console.log(
     env.OPENAI_API_KEY
-      ? `OpenAI configured with model ${env.OPENAI_MODEL}`
-      : "OpenAI not configured (optional). Add OPENAI_API_KEY to backend/.env to enable.",
+      ? `✅ OpenAI configured (${env.OPENAI_MODEL})`
+      : "⚠️ OpenAI optional (not configured)",
   );
-  console.log(`Conversation memory window set to ${env.CONVERSATION_MEMORY_LIMIT} turns.`);
+
+  console.log(
+    env.DEEPSEEK_API_KEY
+      ? `✅ DeepSeek configured (${env.DEEPSEEK_MODEL})`
+      : "⚠️ DeepSeek not configured",
+  );
+
+  console.log(
+    env.GROQ_API_KEY
+      ? `✅ Groq configured (${env.GROQ_MODEL})`
+      : "⚠️ Groq not configured",
+  );
+
+  console.log(
+    `🧠 Memory window: ${env.CONVERSATION_MEMORY_LIMIT} turns`,
+  );
+
   console.log(
     env.CACHE_TTL_SECONDS > 0
-      ? `Response cache enabled for ${env.CACHE_TTL_SECONDS}s with ${env.CACHE_MAX_ENTRIES} entries.`
-      : "Response cache disabled.",
+      ? `⚡ Cache ON (${env.CACHE_TTL_SECONDS}s)`
+      : "❌ Cache OFF",
   );
+
   console.log(
     env.JWT_ACCESS_SECRET && env.JWT_REFRESH_SECRET
-      ? "JWT auth configured from environment."
-      : "JWT auth running with ephemeral development secrets. Add JWT_ACCESS_SECRET and JWT_REFRESH_SECRET to backend/.env for persistent sessions.",
+      ? "🔐 JWT auth configured"
+      : "⚠️ JWT using temporary dev secrets",
   );
 });

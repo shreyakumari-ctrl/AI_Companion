@@ -20,8 +20,14 @@ async function handleChatRequest(
       });
     }
 
+    // NEW: provider support (default gemini)
+    const provider = req.body.provider || "gemini";
+
     const result = await executeChat(
-      parsedRequest.data,
+      {
+        ...parsedRequest.data,
+        provider, // inject provider here 
+      },
       (req as AuthenticatedRequest).auth,
     );
 
