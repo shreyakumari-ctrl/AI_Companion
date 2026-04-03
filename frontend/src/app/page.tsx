@@ -18,7 +18,7 @@ const features = [
   {
     icon: "📝",
     title: "Daily Help",
-    desc: "Plan your day, set reminders, or get help with tasks — Clizel is your productivity buddy.",
+    desc: "Plan your day, set reminders, or get help with tasks. Clizel is your productivity buddy.",
   },
   {
     icon: "⚡",
@@ -30,18 +30,18 @@ const features = [
 const steps = [
   {
     num: "01",
-    title: "Type your message",
-    desc: "Write anything — a question, a worry, or just a 'hi'.",
+    title: "Drop a thought",
+    desc: "Send a question, a random late-night thought, or something you need help untangling.",
   },
   {
     num: "02",
-    title: "Clizel understands",
-    desc: "Clizel reads your tone, context, and intent carefully.",
+    title: "Clizel reads the vibe",
+    desc: "It picks up your tone, context, and intent so the reply feels personal instead of robotic.",
   },
   {
     num: "03",
-    title: "Get a helpful response",
-    desc: "Receive a thoughtful, warm reply tailored just for you.",
+    title: "Get a reply that lands",
+    desc: "You get a thoughtful answer with warmth, clarity, and the kind of energy that actually feels human.",
   },
 ];
 
@@ -128,15 +128,15 @@ export default function LandingPage() {
             that feels genuinely human.
           </p>
           <div className="features-grid">
-            {features.map((f, i) => (
+            {features.map((feature, index) => (
               <div
-                key={f.title}
+                key={feature.title}
                 className="feature-card"
-                style={{ animationDelay: `${i * 0.12}s` }}
+                style={{ animationDelay: `${index * 0.12}s` }}
               >
-                <div className="feature-icon">{f.icon}</div>
-                <h3 className="feature-title">{f.title}</h3>
-                <p className="feature-desc">{f.desc}</p>
+                <div className="feature-icon">{feature.icon}</div>
+                <h3 className="feature-title">{feature.title}</h3>
+                <p className="feature-desc">{feature.desc}</p>
               </div>
             ))}
           </div>
@@ -146,13 +146,17 @@ export default function LandingPage() {
       <section className="how-section">
         <div className="section-container">
           <div className="section-label">How it works</div>
-          <h2 className="section-title">Simple, fast, and human-like</h2>
+          <h2 className="section-title">It feels less like software, more like a real conversation</h2>
+          <p className="section-subtitle how-section__subtitle">
+            Fast enough for everyday use, thoughtful enough to feel personal, and smooth enough to keep the whole experience light.
+          </p>
           <div className="steps-grid">
-            {steps.map((s) => (
-              <div key={s.num} className="step-card">
-                <div className="step-num">{s.num}</div>
-                <h3 className="step-title">{s.title}</h3>
-                <p className="step-desc">{s.desc}</p>
+            {steps.map((step) => (
+              <div key={step.num} className="step-card">
+                <div className="step-card__glow" aria-hidden="true" />
+                <div className="step-num">{step.num}</div>
+                <h3 className="step-title">{step.title}</h3>
+                <p className="step-desc">{step.desc}</p>
               </div>
             ))}
           </div>
@@ -182,13 +186,13 @@ export default function LandingPage() {
               <span className="preview-status">● online</span>
             </div>
             <div className="chat-preview-messages">
-              {previewMessages.map((m, i) => (
+              {previewMessages.map((message, index) => (
                 <div
-                  key={i}
-                  className={`preview-bubble preview-bubble--${m.sender}`}
-                  style={{ animationDelay: `${i * 0.25}s` }}
+                  key={index}
+                  className={`preview-bubble preview-bubble--${message.sender}`}
+                  style={{ animationDelay: `${index * 0.25}s` }}
                 >
-                  {m.text}
+                  {message.text}
                 </div>
               ))}
             </div>
@@ -199,13 +203,17 @@ export default function LandingPage() {
       <section className="cta-section">
         <div className="cta-inner">
           <div className="cta-glow" />
-          <h2 className="cta-title">Start your journey with Clizel 💫</h2>
+          <div className="cta-orb cta-orb--one" aria-hidden="true" />
+          <div className="cta-orb cta-orb--two" aria-hidden="true" />
+          <p className="cta-eyebrow">Private. Personal. Always on.</p>
+          <h2 className="cta-title">Start your journey with Clizel</h2>
           <p className="cta-desc">
-            Join the experience of having an AI that truly cares about you.
+            Step into a calmer, smarter chat experience that feels premium, personal, and genuinely easy to come back to.
           </p>
           <Link href="/chat" className="btn btn-white">
-            Try Now — It&apos;s Free ✨
+            Open Clizel →
           </Link>
+          <p className="cta-note">Built for daily check-ins, deep chats, and the little moments in between.</p>
         </div>
       </section>
 
@@ -219,10 +227,9 @@ export default function LandingPage() {
           <a href="#features">Features</a>
           <Link href="/chat">Chat</Link>
         </div>
-        <p className="footer-copy">© 2025 Clizel AI. Made with 💜</p>
+        <p className="footer-copy">© 2026 Clizel AI. Designed for more human conversations.</p>
       </footer>
       <ToastContainer />
     </div>
   );
 }
-

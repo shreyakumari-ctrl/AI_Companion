@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { io, type Socket } from "socket.io-client";
 import { getActivityFeed } from "@/services/api";
 import { useChatStore } from "@/store/chatStore";
 
@@ -20,7 +19,7 @@ const categoryIconMap: Record<string, string> = {
   task: "✅",
 };
 
-const ACTIVITY_ERROR_MESSAGE = "Unable to load activity feed 😅";
+const ACTIVITY_ERROR_MESSAGE = "Unable to load activity feed";
 
 function formatTimestamp(value: string) {
   const date = new Date(value);
@@ -30,16 +29,6 @@ function formatTimestamp(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
-}
-
-function createFallbackEvent() {
-  return {
-    id: `fallback-${Date.now()}`,
-    title: "New notification received",
-    description: "A fresh update has arrived in your activity feed.",
-    category: "system",
-    timestamp: new Date().toISOString(),
-  };
 }
 
 export default function ActivityFeed() {
@@ -68,8 +57,8 @@ export default function ActivityFeed() {
           err instanceof Error
             ? err.message
             : typeof err === "string"
-            ? err
-            : JSON.stringify(err) || "Unknown error";
+              ? err
+              : JSON.stringify(err) || "Unknown error";
         console.error("Activity feed failed:", errorMessage);
         setError(ACTIVITY_ERROR_MESSAGE);
         setLoading(false);
@@ -81,90 +70,6 @@ export default function ActivityFeed() {
     };
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const socketUrl =
-      process.env.NEXT_PUBLIC_SOCKET_URL ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      "http://127.0.0.1:5000";
-    let socket: Socket | null = null;
-    let fallbackTimer: number | undefined;
-
-    const addActivity = (activity: ActivityItem) => {
-      setActivities((current) => [activity, ...current].slice(0, 8));
-      pushToastRef.current({ message: "New notification received 🔔", type: "info" });
-    };
-
-    const stopFallback = () => {
-      if (fallbackTimer) {
-        window.clearInterval(fallbackTimer);
-        fallbackTimer = undefined;
-      }
-    };
-
-    const startFallback = () => {
-      if (fallbackTimer) return;
-      fallbackTimer = window.setInterval(() => {
-        addActivity(createFallbackEvent());
-      }, 22000);
-    };
-
-    let handleNotification: ((payload: Partial<ActivityItem>) => void) | null = null;
-
-    try {
-      socket = io(socketUrl, {
-        transports: ["websocket"],
-        path: "/socket.io",
-      });
-
-      socket.on("connect", () => {
-        stopFallback();
-        pushToastRef.current({ message: "Realtime activity listener connected", type: "info" });
-      });
-
-      handleNotification = (payload: Partial<ActivityItem>) => {
-        const activity = {
-          id: payload.id || `socket-${Date.now()}`,
-          title: payload.title || "New notification received",
-          description:
-            payload.description || "A realtime update arrived in your activity feed.",
-          category: payload.category || "system",
-          timestamp: payload.timestamp || new Date().toISOString(),
-        };
-        addActivity(activity);
-      };
-
-      socket.on("new_notification", handleNotification);
-
-      socket.on("connect_error", () => {
-        startFallback();
-      });
-
-      socket.on("disconnect", () => {
-        startFallback();
-      });
-    } catch {
-      startFallback();
-    }
-
-    return () => {
-      if (socket) {
-        if (handleNotification) {
-          socket.off("new_notification", handleNotification);
-        }
-        socket.off("connect_error");
-        socket.off("disconnect");
-        socket.disconnect();
-      }
-      if (fallbackTimer) {
-        window.clearInterval(fallbackTimer);
-      }
-    };
-  }, []);
-
   return (
     <div className="dashboard-card activity-feed-card">
       <div className="dashboard-card__header">
@@ -172,7 +77,7 @@ export default function ActivityFeed() {
           <p className="section-label">Activity Feed</p>
           <h3 className="dashboard-card__title">Live activity stream</h3>
           <p className="dashboard-card__subtitle">
-            Recent user events and system updates arrive in real time.
+            Recent user events and system updates from the connected data source.
           </p>
         </div>
       </div>
@@ -189,7 +94,7 @@ export default function ActivityFeed() {
         </div>
       ) : error ? (
         <div className="activity-error-card">
-          <strong>Unable to load activity feed 😅</strong>
+          <strong>Unable to load activity feed</strong>
           <p>Please refresh the page or try again later.</p>
         </div>
       ) : activities.length === 0 ? (
@@ -219,4 +124,3 @@ export default function ActivityFeed() {
     </div>
   );
 }
-

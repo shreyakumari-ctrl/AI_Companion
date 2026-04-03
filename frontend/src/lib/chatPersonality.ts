@@ -12,7 +12,7 @@ type PersonalityConfig = {
 export const personalityConfigs: Record<PersonalityPreset, PersonalityConfig> = {
   Friendly: {
     label: "Friendly",
-    tonePreference: "friendly gen-z",
+    tonePreference: "soft gen-z bestie, warm, emotionally aware, caring, real texting energy",
     mood: "curious",
     welcome: "hey bestie 👋 i'm Clizel. what's on your mind?",
     onboardingTitle: "Friendly vibe",
@@ -21,7 +21,7 @@ export const personalityConfigs: Record<PersonalityPreset, PersonalityConfig> = 
   },
   Funny: {
     label: "Funny",
-    tonePreference: "playful gen-z",
+    tonePreference: "funny gen-z bestie, playful, witty, unserious in a cute way, real texting energy",
     mood: "happy",
     welcome:
       "heyyy 😄 Clizel fun mode is on. bring me the chaos, questions, or random thoughts.",
@@ -31,7 +31,7 @@ export const personalityConfigs: Record<PersonalityPreset, PersonalityConfig> = 
   },
   Motivational: {
     label: "Motivational",
-    tonePreference: "motivational gen-z",
+    tonePreference: "motivational gen-z bestie, sharp, uplifting, locked-in, real texting energy",
     mood: "focused",
     welcome:
       "let's lock in 🚀 i'm Clizel, ready to hype you up and keep you moving fr.",

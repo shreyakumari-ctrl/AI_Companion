@@ -3,12 +3,16 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  getConversationMessages,
+  getConversations,
   getCurrentUser,
   loginUser,
   logoutUser,
   registerUser,
   sendMessageStream,
   type ChatAttachmentPayload,
+  type ChatMode,
+  type ConversationSummary,
   MessageTurn,
   ApiError,
   type AuthUser,
@@ -21,10 +25,10 @@ import CursorSmokeTrail from "@/components/CursorSmokeTrail";
 import SocialScriptCarousel from "@/components/SocialScriptCarousel";
 import ToastContainer from "@/components/ToastContainer";
 import TypingIndicator from "@/components/TypingIndicator";
-import ActivityFeed from "@/components/ActivityFeed";
 import ProfileSettings from "@/components/ProfileSettings";
-import { useChatStore } from "@/store/chatStore";
+import { useChatStore, type ChatMessage } from "@/store/chatStore";
 import {
+  getPersonalityPayload,
   getWelcomeMessage,
   type PersonalityPreset,
 } from "@/lib/chatPersonality";
@@ -87,6 +91,90 @@ type SettingsTab =
 type ThemeMode = "dark" | "light";
 
 const THEME_STORAGE_KEY = "clizel-theme-mode";
+
+const personalityPromptMap: Record<
+  PersonalityPreset,
+  { tonePreference: string; mood: string }
+> = {
+  Friendly: {
+    tonePreference: "gentle, emotionally warm, validating, like a close friend texting you at 2am who actually gets it",
+    mood: "relaxed",
+  },
+  Funny: {
+    tonePreference: "chaotic-cute, playful, expressive, funny in a natural texting way, like a real online bestie",
+    mood: "curious",
+  },
+  Motivational: {
+    tonePreference: "high-energy, emotionally smart, confident, push-you-forward bestie energy with modern texting rhythm",
+    mood: "focused",
+  },
+};
+
+function toStoreMessage(
+  message: {
+    id: string;
+    role: string;
+    content: string;
+    createdAt: string;
+  },
+): ChatMessage {
+  return {
+    id: message.id,
+    sender: message.role === "user" ? "user" : "ai",
+    text: message.content,
+    status: "complete" as const,
+    timestamp: new Date(message.createdAt).getTime(),
+  };
+}
+
+function buildModeInstruction(mode: ChatMode) {
+  switch (mode) {
+    case "search":
+      return "Use search mode: answer with the clearest direct result first, then only the most relevant supporting detail.";
+    case "analyze":
+      return "Use analyze mode: inspect the request carefully, point out patterns or issues, and explain your reasoning clearly.";
+    case "create":
+      return "Use create mode: produce polished, useful output that is easy to copy or send as-is.";
+    default:
+      return "";
+  }
+}
+
+function buildSocialActionPrompt(action: "fix" | "explain", sourceText: string) {
+  if (action === "fix") {
+    return `Please improve and tighten this reply so it sounds smarter, cleaner, and more natural while keeping the same intent:\n\n${sourceText}`;
+  }
+
+  return `Please explain this reply in simple words, highlight what it means, and point out the main takeaway:\n\n${sourceText}`;
+}
+
+function formatLongAssistantReply(text: string) {
+  const trimmed = text.trim();
+
+  if (
+    trimmed.length < 360 ||
+    /(^|\n)\s*[-*•]/.test(trimmed) ||
+    trimmed.includes("```")
+  ) {
+    return trimmed;
+  }
+
+  const sentences = trimmed
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .filter(Boolean);
+
+  if (sentences.length < 3) {
+    return trimmed;
+  }
+
+  const bullets = sentences.slice(0, 3).map((sentence) => `- ${sentence.trim()}`);
+  const funLine = sentences[3]?.trim()
+    ? `\nMeme line: ${sentences[3].trim()}`
+    : "\nMeme line: main character energy, but with a better plan.";
+
+  return `${bullets.join("\n")}${funLine}`;
+}
 
 function SparkIcon() {
   return (
@@ -393,6 +481,7 @@ export default function ChatExperience({
   const messages = useChatStore((state) => state.messages);
   const isStreaming = useChatStore((state) => state.isStreaming);
   const addMessage = useChatStore((state) => state.addMessage);
+  const setMessages = useChatStore((state) => state.setMessages);
   const updateMessage = useChatStore((state) => state.updateMessage);
   const appendChunk = useChatStore((state) => state.appendChunk);
   const markComplete = useChatStore((state) => state.markComplete);
@@ -414,9 +503,7 @@ export default function ChatExperience({
   const [composerAttachments, setComposerAttachments] = useState<
     ComposerAttachment[]
   >([]);
-  const [activeTool, setActiveTool] = useState<"search" | "analyze" | "create">(
-    "search",
-  );
+  const [activeTool, setActiveTool] = useState<ChatMode>("search");
   const [isListening, setIsListening] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
@@ -436,6 +523,8 @@ export default function ChatExperience({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [profileUpdateModalOpen, setProfileUpdateModalOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
+  const [savedConversations, setSavedConversations] = useState<ConversationSummary[]>([]);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -501,6 +590,7 @@ export default function ChatExperience({
         setAuthUser(data.user);
         updateUserProfile({
           displayName: data.user.name ?? data.user.email ?? "Clizel User",
+          email: data.user.email ?? "",
         });
       })
       .catch(() => {
@@ -509,12 +599,79 @@ export default function ChatExperience({
         }
 
         setAuthUser(null);
+        setSavedConversations([]);
       });
 
     return () => {
       active = false;
     };
   }, [updateUserProfile]);
+
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    let active = true;
+
+    getConversations()
+      .then((items) => {
+        if (!active) {
+          return;
+        }
+
+        setSavedConversations(items);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+
+        console.error("Conversation list load failed:", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser || !conversationId) {
+      return;
+    }
+
+    let active = true;
+    setLoadingConversationId(conversationId);
+
+    getConversationMessages(conversationId)
+      .then((items) => {
+        if (!active) {
+          return;
+        }
+
+        if (items.length) {
+          setMessages(items.map(toStoreMessage));
+        }
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+
+        console.error("Conversation hydrate failed:", error);
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingConversationId((current) =>
+            current === conversationId ? null : current,
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authUser, conversationId, setMessages]);
 
   useEffect(() => {
     if (!panelOpen) {
@@ -972,6 +1129,77 @@ export default function ChatExperience({
     });
   }
 
+  function buildConversationHistory(sourceMessages: typeof messages) {
+    return sourceMessages
+      .filter(
+        (message) =>
+          message.text.trim().length > 0 && message.status !== "failed",
+      )
+      .map((message) => ({
+        sender: message.sender,
+        text: message.text,
+      })) as MessageTurn[];
+  }
+
+  function buildPromptPayload(
+    text: string,
+    attachmentPayload: ChatAttachmentPayload[] = [],
+  ) {
+    const attachmentSummary =
+      attachmentPayload.length > 0
+        ? `\n\nContext: ${attachmentPayload
+            .map((attachment) =>
+              [attachment.kind, attachment.label, attachment.meta]
+                .filter(Boolean)
+                .join(" - "),
+            )
+            .join("; ")}`
+        : "";
+    const modeInstruction = (() => {
+      if (activeTool === "search") {
+        return "Search mode.";
+      }
+
+      if (activeTool === "analyze") {
+        return "Analyze mode.";
+      }
+
+      if (activeTool === "create") {
+        return "Create mode.";
+      }
+
+      return "";
+    })();
+
+    return {
+      message: `${modeInstruction ? `${modeInstruction}\n\n` : ""}${text}${attachmentSummary}`.trim().slice(0, 950),
+      tonePreference: `${getPersonalityPayload(personality).tonePreference}, ${personalityPromptMap[personality].tonePreference}`,
+      mood: personalityPromptMap[personality].mood,
+    };
+  }
+
+  async function loadConversation(conversation: ConversationSummary) {
+    setLoadingConversationId(conversation.id);
+    setErrorState(null);
+
+    try {
+      const conversationMessages = await getConversationMessages(conversation.id);
+      setMessages(conversationMessages.map(toStoreMessage));
+      setConversationId(conversation.id);
+      setPanelOpen(false);
+    } catch (error) {
+      console.error("Conversation load failed:", error);
+      pushToast({
+        type: "error",
+        message: "Saved chat load nahi ho paya. Please try again.",
+      });
+    } finally {
+      setLoadingConversationId((current) =>
+        current === conversation.id ? null : current,
+      );
+    }
+  }
+
   async function streamAssistantReply(
     text: string,
     history: MessageTurn[],
@@ -989,8 +1217,9 @@ export default function ChatExperience({
     setIsLagging(false);
 
     try {
+      const promptPayload = buildPromptPayload(text, attachmentPayload);
       const streamMeta = await sendMessageStream(
-        text,
+        promptPayload.message,
         personality,
         history,
         {
@@ -1004,6 +1233,10 @@ export default function ChatExperience({
         },
         attachmentPayload,
         activeTool,
+        {
+          tonePreference: promptPayload.tonePreference,
+          mood: promptPayload.mood,
+        },
         conversationId,
       );
 
@@ -1014,26 +1247,55 @@ export default function ChatExperience({
       }
 
       if (streamMeta || streamBufferRef.current || streamMessageIdRef.current === null) {
+        const currentMessage = useChatStore
+          .getState()
+          .messages.find((message) => message.id === aiMessageId);
+
+        if (currentMessage?.text) {
+          updateMessage(aiMessageId, formatLongAssistantReply(currentMessage.text));
+        }
+
         markComplete(aiMessageId);
         if (clearAttachmentsOnSuccess) {
           clearComposerAttachments();
+        }
+        if (authUser) {
+          getConversations()
+            .then((items) => setSavedConversations(items))
+            .catch((error) => console.error("Conversation refresh failed:", error));
         }
       } else {
         removeMessage(aiMessageId);
       }
     } catch (err) {
       const apiErr = err as ApiError;
+      const partialMessage = useChatStore
+        .getState()
+        .messages.find((message) => message.id === aiMessageId);
+      const hasPartialText = !!partialMessage?.text.trim();
 
       cancelSmoothStream();
-      markFailed(aiMessageId);
       setIsLagging(false);
 
-      setErrorState(resolveErrorState(apiErr));
-      pushToast({
-        type: "error",
-        message:
-          apiErr.message || "Oops ðŸ˜… Something went wrong. Please try again!",
-      });
+      if (hasPartialText) {
+        updateMessage(
+          aiMessageId,
+          formatLongAssistantReply(partialMessage?.text ?? ""),
+        );
+        markComplete(aiMessageId);
+        pushToast({
+          type: "info",
+          message: "Reply ka kuch part aa gaya tha, so maine partial response preserve kar diya.",
+        });
+      } else {
+        removeMessage(aiMessageId);
+        setErrorState(resolveErrorState(apiErr));
+        pushToast({
+          type: "error",
+          message:
+            apiErr.message || "Oops ðŸ˜… Something went wrong. Please try again!",
+        });
+      }
     } finally {
       inputRef.current?.focus();
     }
@@ -1056,18 +1318,32 @@ export default function ChatExperience({
     setErrorState(null);
     setComposerMenuOpen(false);
 
-    const priorHistory: MessageTurn[] = messages
-      .filter(
-        (message) =>
-          message.text.trim().length > 0 && message.status !== "failed",
-      )
-      .map((message) => ({
-        sender: message.sender,
-        text: message.text,
-      }));
+    const priorHistory = buildConversationHistory(messages);
     const history: MessageTurn[] = [...priorHistory, { sender: "user", text }];
     const attachmentPayload = buildAttachmentPayload(composerAttachments);
     await streamAssistantReply(text, history, attachmentPayload, true);
+  }
+
+  async function handleSmartAction(action: "fix" | "explain", sourceText: string) {
+    if (isStreaming) {
+      return;
+    }
+
+    const actionLabel = action === "fix" ? "Fix reply" : "Explain";
+    const prompt = buildSocialActionPrompt(action, sourceText);
+
+    addMessage({
+      sender: "user",
+      text: actionLabel,
+      status: "complete",
+    });
+
+    const history = [
+      ...buildConversationHistory(messages),
+      { sender: "user" as const, text: actionLabel },
+    ];
+
+    await streamAssistantReply(prompt, history);
   }
 
   function handleRetry() {
@@ -1103,8 +1379,6 @@ export default function ChatExperience({
     const editedMessageIndex = messages.findIndex(
       (message) => message.id === editingMessageId && message.sender === "user",
     );
-
-    updateMessage(editingMessageId, nextText);
     setEditingMessageId(null);
     setEditingText("");
 
@@ -1112,21 +1386,21 @@ export default function ChatExperience({
       return;
     }
 
-    const staleMessages = messages.slice(editedMessageIndex + 1);
-    staleMessages.forEach((message) => {
-      removeMessage(message.id);
-    });
+    const nextMessages = messages
+      .slice(0, editedMessageIndex + 1)
+      .map((message) =>
+        message.id === editingMessageId
+          ? {
+              ...message,
+              text: nextText,
+              timestamp: Date.now(),
+            }
+          : message,
+      );
 
-    const priorHistory: MessageTurn[] = messages
-      .slice(0, editedMessageIndex)
-      .filter(
-        (message) =>
-          message.text.trim().length > 0 && message.status !== "failed",
-      )
-      .map((message) => ({
-        sender: message.sender,
-        text: message.text,
-      }));
+    setMessages(nextMessages);
+
+    const priorHistory = buildConversationHistory(nextMessages.slice(0, editedMessageIndex));
 
     const history: MessageTurn[] = [...priorHistory, { sender: "user", text: nextText }];
 
@@ -1177,20 +1451,31 @@ export default function ChatExperience({
     messages.length === 1 &&
     messages[0]?.sender === "ai" &&
     messages[0]?.status === "complete";
-  const historyItems: HistoryPreview[] = messages
-    .filter((message) => message.sender === "user")
-    .slice(-10)
-    .reverse()
-    .map((message, index) => ({
-      id: message.id,
-      title: index === 0 ? "Current chat" : `Chat ${index + 1}`,
-      preview: message.text,
-    }));
+  const historyItems: HistoryPreview[] = savedConversations.length
+    ? savedConversations.map((conversation, index) => ({
+        id: conversation.id,
+        title: conversation.title || (index === 0 ? "Current chat" : `Chat ${index + 1}`),
+        preview:
+          conversation.lastMessage?.content ||
+          conversation.title ||
+          "Open this saved chat",
+      }))
+    : messages
+        .filter((message) => message.sender === "user")
+        .slice(-10)
+        .reverse()
+        .map((message, index) => ({
+          id: message.id,
+          title: index === 0 ? "Current chat" : `Chat ${index + 1}`,
+          preview: message.text,
+        }));
   const shouldShowSocialCarousel =
     (activeTool === "create" || composerAttachments.length > 0) &&
     input.trim().length > 0;
   const composerStatusLabel = !isOnline
     ? "Reconnecting..."
+    : loadingConversationId
+      ? "Loading chat..."
     : isLagging
       ? "Network lag ðŸ˜…"
       : isListening
@@ -1308,9 +1593,13 @@ export default function ChatExperience({
       setAuthUser(session.user);
       updateUserProfile({
         displayName: session.user.name ?? session.user.email ?? "Clizel User",
+        email: session.user.email ?? "",
       });
       setAuthPassword("");
       setAuthModalOpen(false);
+      getConversations()
+        .then((items) => setSavedConversations(items))
+        .catch((error) => console.error("Conversation list refresh failed:", error));
       pushToast({
         type: "info",
         message: authMode === "login" ? "Logged in successfully âœ…" : "Account created âœ…",
@@ -1332,6 +1621,7 @@ export default function ChatExperience({
     try {
       await logoutUser();
       setAuthUser(null);
+      setSavedConversations([]);
       setAuthPassword("");
       pushToast({
         type: "info",
@@ -1470,14 +1760,23 @@ export default function ChatExperience({
                   <p className="dashboard-sidebar__label">Recent Chats</p>
                   <div className="dashboard-history">
                     {historyItems.length ? (
-                      historyItems.map((item, index) => (
+                      historyItems.map((item) => (
                         <button
                           key={item.id}
                           type="button"
                           className={`dashboard-history__item ${
-                            index === 0 ? "is-active" : ""
+                            item.id === conversationId ? "is-active" : ""
                           }`}
                           onClick={() => {
+                            const matchedConversation = savedConversations.find(
+                              (conversation) => conversation.id === item.id,
+                            );
+
+                            if (matchedConversation) {
+                              void loadConversation(matchedConversation);
+                              return;
+                            }
+
                             handleRetryFromText(item.preview);
                             setPanelOpen(false);
                           }}
@@ -1649,14 +1948,25 @@ export default function ChatExperience({
                 <p className="dashboard-sidebar__label">Recents</p>
                 <div className="dashboard-history">
                   {historyItems.length ? (
-                    historyItems.map((item, index) => (
+                    historyItems.map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         className={`dashboard-history__item ${
-                          index === 0 ? "is-active" : ""
+                          item.id === conversationId ? "is-active" : ""
                         }`}
-                        onClick={() => handleRetryFromText(item.preview)}
+                        onClick={() => {
+                          const matchedConversation = savedConversations.find(
+                            (conversation) => conversation.id === item.id,
+                          );
+
+                          if (matchedConversation) {
+                            void loadConversation(matchedConversation);
+                            return;
+                          }
+
+                          handleRetryFromText(item.preview);
+                        }}
                       >
                         <span>{item.preview || item.title}</span>
                       </button>
@@ -1880,7 +2190,9 @@ export default function ChatExperience({
                     </div>
                   ) : (
                     <>
-                  {msg.sender === "ai" && !msg.text ? (
+                  {msg.sender === "ai" &&
+                  !msg.text &&
+                  (msg.status === "pending" || msg.status === "streaming") ? (
                     <TypingIndicator label="Clizel is cooking..." />
                   ) : msg.sender === "ai" ? (
                     <MarkdownRenderer content={msg.text} />
@@ -1904,6 +2216,20 @@ export default function ChatExperience({
                     <MessageActions
                       text={msg.text}
                       sender={msg.sender}
+                      onFixReply={
+                        msg.sender === "ai"
+                          ? () => {
+                              void handleSmartAction("fix", msg.text);
+                            }
+                          : undefined
+                      }
+                      onExplain={
+                        msg.sender === "ai"
+                          ? () => {
+                              void handleSmartAction("explain", msg.text);
+                            }
+                          : undefined
+                      }
                       onRetry={
                         msg.sender === "ai"
                           ? () => {
@@ -1982,9 +2308,7 @@ export default function ChatExperience({
                     className={`composer-mode-chip ${
                       activeTool === tool ? "composer-mode-chip--active" : ""
                     }`}
-                    onClick={() =>
-                      setActiveTool(tool as "search" | "analyze" | "create")
-                    }
+                    onClick={() => setActiveTool(tool as ChatMode)}
                   >
                     {label}
                   </button>

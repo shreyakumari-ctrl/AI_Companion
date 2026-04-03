@@ -20,6 +20,8 @@ export interface ChatAttachmentPayload {
   meta?: string;
 }
 
+export type ChatMode = "search" | "analyze" | "create";
+
 export interface ApiError {
   status: number;
   message: string;
@@ -40,6 +42,28 @@ export interface ChatResponse {
   timestamp: string;
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string | null;
+  updatedAt: string;
+  createdAt: string;
+  messageCount: number;
+  lastMessage: {
+    role: string;
+    content: string;
+    createdAt: string;
+    provider: string | null;
+  } | null;
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: string;
+  content: string;
+  provider: string | null;
+  createdAt: string;
+}
+
 export interface ChatStreamMeta {
   conversationId: string;
   provider: string;
@@ -52,6 +76,30 @@ export interface ChatStreamMeta {
     mood: string;
   };
   timestamp: string;
+}
+
+export interface ChatPromptOverrides {
+  tonePreference?: string;
+  mood?: string;
+}
+
+function sanitizeChatPayload(payload: {
+  message: string;
+  history: MessageTurn[];
+  conversationId?: string | null;
+  userProfile: UserProfilePayload;
+  attachments: ChatAttachmentPayload[];
+  mode: ChatMode;
+  personality: PersonalityPreset;
+  tonePreference?: string;
+  mood?: string;
+}) {
+  return {
+    ...payload,
+    message: payload.message.trim().slice(0, 1000),
+    tonePreference: payload.tonePreference?.trim().slice(0, 60),
+    mood: payload.mood?.trim().slice(0, 60),
+  };
 }
 
 function normalizeApiError(status: number, rawMessage: string) {
@@ -154,27 +202,44 @@ export async function sendMessage(
   history: MessageTurn[],
   userProfile: UserProfilePayload,
   attachments: ChatAttachmentPayload[] = [],
-  mode: "search" | "analyze" | "create" = "search",
+  mode: ChatMode = "search",
+  promptOverrides: ChatPromptOverrides = {},
   conversationId?: string | null,
 ): Promise<ChatResponse> {
   let response: Response;
+  const requestBody = JSON.stringify(sanitizeChatPayload({
+    message,
+    history: history.slice(-5),
+    conversationId,
+    userProfile,
+    attachments,
+    mode,
+    ...getPersonalityPayload(personality),
+    ...promptOverrides,
+  }));
 
   try {
     response = await fetch(`${API_URL}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        history: history.slice(-5),
-        conversationId,
-        userProfile,
-        attachments,
-        mode,
-        ...getPersonalityPayload(personality),
-      }),
+      headers: createJsonHeaders(true),
+      body: requestBody,
     });
   } catch {
     throw normalizeApiError(503, "Network request failed.");
+  }
+
+  if (response.status === 401 && readAccessToken()) {
+    storeAccessToken(null);
+
+    try {
+      response = await fetch(`${API_URL}/api/chat`, {
+        method: "POST",
+        headers: createJsonHeaders(false),
+        body: requestBody,
+      });
+    } catch {
+      throw normalizeApiError(503, "Network request failed.");
+    }
   }
 
   if (!response.ok) {
@@ -191,29 +256,46 @@ export async function sendMessageStream(
   userProfile: UserProfilePayload,
   onChunk: (chunk: string) => void,
   attachments: ChatAttachmentPayload[] = [],
-  mode: "search" | "analyze" | "create" = "search",
+  mode: ChatMode = "search",
+  promptOverrides: ChatPromptOverrides = {},
   conversationId?: string | null,
 ): Promise<ChatStreamMeta | null> {
   let response: Response;
   let streamMeta: ChatStreamMeta | null = null;
   let receivedStreamChunk = false;
+  const requestBody = JSON.stringify(sanitizeChatPayload({
+    message,
+    history: history.slice(-5),
+    conversationId,
+    userProfile,
+    attachments,
+    mode,
+    ...getPersonalityPayload(personality),
+    ...promptOverrides,
+  }));
 
   try {
     response = await fetch(`${API_URL}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        history: history.slice(-5),
-        conversationId,
-        userProfile,
-        attachments,
-        mode,
-        ...getPersonalityPayload(personality),
-      }),
+      headers: createJsonHeaders(true),
+      body: requestBody,
     });
   } catch {
     throw normalizeApiError(503, "Network request failed.");
+  }
+
+  if (response.status === 401 && readAccessToken()) {
+    storeAccessToken(null);
+
+    try {
+      response = await fetch(`${API_URL}/api/chat/stream`, {
+        method: "POST",
+        headers: createJsonHeaders(false),
+        body: requestBody,
+      });
+    } catch {
+      throw normalizeApiError(503, "Network request failed.");
+    }
   }
 
   if (!response.ok) {
@@ -228,20 +310,17 @@ export async function sendMessageStream(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    const eventBlocks = buffer.split("\n\n");
-    buffer = eventBlocks.pop() ?? "";
-
+  function processEventBlocks(eventBlocks: string[]) {
     for (const eventBlock of eventBlocks) {
+      const normalizedBlock = eventBlock.replace(/\r/g, "");
+
+      if (!normalizedBlock.replace(/\n/g, "").length) {
+        continue;
+      }
+
       try {
         const isDone = consumeSseEventBlock(
-          eventBlock,
+          normalizedBlock,
           (chunk) => {
             if (chunk) {
               receivedStreamChunk = true;
@@ -254,16 +333,47 @@ export async function sendMessageStream(
         );
 
         if (isDone) {
-          return streamMeta;
+          return true;
         }
       } catch (error) {
         if (receivedStreamChunk) {
-          return streamMeta;
+          return true;
         }
 
         throw error;
       }
     }
+
+    return false;
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      const eventBlocks = buffer.split("\n\n");
+      buffer = eventBlocks.pop() ?? "";
+
+      if (processEventBlocks(eventBlocks)) {
+        return streamMeta;
+      }
+    }
+  } catch (error) {
+    if (receivedStreamChunk) {
+      return streamMeta;
+    }
+
+    throw error;
+  }
+
+  const trailingBuffer = `${buffer}${decoder.decode()}`.replace(/\r\n/g, "\n");
+
+  if (trailingBuffer.replace(/\r|\n/g, "").length) {
+    processEventBlocks([trailingBuffer]);
   }
 
   return streamMeta;
@@ -303,6 +413,12 @@ export interface AuthSessionPayload {
 export interface AuthStatePayload {
   user: AuthUser;
   sessionId: string;
+}
+
+export interface AuthProfileUpdatePayload {
+  name?: string | null;
+  tonePreference?: string;
+  mood?: string;
 }
 
 const ACCESS_TOKEN_KEY = "clizel-access-token";
@@ -345,7 +461,24 @@ function getAuthHeaders() {
     : {};
 }
 
+function createJsonHeaders(includeAuth = true) {
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+
+  if (includeAuth) {
+    for (const [key, value] of Object.entries(getAuthHeaders())) {
+      headers.set(key, value);
+    }
+  }
+
+  return headers;
+}
+
 async function authRequest(path: string, init?: RequestInit) {
+  return authenticatedRequest(`${API_URL}/api/auth${path}`, init);
+}
+
+async function authenticatedRequest(url: string, init?: RequestInit) {
   let response: Response;
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
@@ -355,13 +488,17 @@ async function authRequest(path: string, init?: RequestInit) {
   }
 
   try {
-    response = await fetch(`${API_URL}/api/auth${path}`, {
+    response = await fetch(url, {
       credentials: "include",
       ...init,
       headers,
     });
   } catch {
     throw normalizeApiError(503, "Network request failed.");
+  }
+
+  if (response.status === 401 && readAccessToken()) {
+    storeAccessToken(null);
   }
 
   return response;
@@ -425,4 +562,43 @@ export async function getCurrentUser(): Promise<AuthStatePayload> {
     method: "GET",
   });
   return parseJsonOrError(response);
+}
+
+export async function updateAuthProfile(
+  payload: AuthProfileUpdatePayload,
+): Promise<AuthStatePayload> {
+  const response = await authRequest("/profile", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  return parseJsonOrError(response);
+}
+
+export async function getConversations(limit = 20): Promise<ConversationSummary[]> {
+  const response = await authenticatedRequest(
+    `${API_URL}/api/conversations?limit=${limit}`,
+    {
+      method: "GET",
+    },
+  );
+  const data = (await parseJsonOrError(response)) as {
+    conversations: ConversationSummary[];
+  };
+  return data.conversations;
+}
+
+export async function getConversationMessages(
+  conversationId: string,
+  limit = 100,
+): Promise<ConversationMessage[]> {
+  const response = await authenticatedRequest(
+    `${API_URL}/api/conversations/${conversationId}/messages?limit=${limit}`,
+    {
+      method: "GET",
+    },
+  );
+  const data = (await parseJsonOrError(response)) as {
+    messages: ConversationMessage[];
+  };
+  return data.messages;
 }

@@ -24,6 +24,8 @@ export interface UserProfile {
   onboardingCompleted: boolean;
   displayName?: string;
   avatarDataUrl?: string;
+  bio?: string;
+  email?: string;
 }
 
 interface ChatStore {
@@ -33,6 +35,7 @@ interface ChatStore {
   conversationId: string | null;
   userProfile: UserProfile;
   addMessage: (msg: Omit<ChatMessage, "id" | "timestamp">) => string;
+  setMessages: (messages: ChatMessage[]) => void;
   updateMessage: (id: string, text: string) => void;
   appendChunk: (id: string, chunk: string) => void;
   markComplete: (id: string) => void;
@@ -82,6 +85,16 @@ export const useChatStore = create<ChatStore>()(
 
         return id;
       },
+
+      setMessages: (messages) =>
+        set({
+          messages,
+          isStreaming: messages.some(
+            (message) =>
+              message.sender === "ai" &&
+              (message.status === "streaming" || message.status === "pending"),
+          ),
+        }),
 
       updateMessage: (id, text) =>
         set((state) => ({
@@ -177,10 +190,11 @@ export const useChatStore = create<ChatStore>()(
       name: "clizel-chat-store",
       storage: createJSONStorage(() => window.localStorage),
       partialize: (state) => ({
+        messages: state.messages,
         conversationId: state.conversationId,
         userProfile: state.userProfile,
       }),
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
         if (!persistedState || typeof persistedState !== "object") {
           return {
@@ -196,15 +210,14 @@ export const useChatStore = create<ChatStore>()(
         }
 
         const state = persistedState as {
+          messages?: ChatMessage[];
           conversationId?: string | null;
           userProfile?: Partial<UserProfile>;
         };
 
-        // v2 -> v3 and any older payloads: keep stable profile fields,
-        // drop large message history from persistence.
-        if (version <= 3) {
+        if (version <= 4) {
           return {
-            messages: [],
+            messages: state.messages ?? [],
             isStreaming: false,
             toasts: [],
             conversationId: state.conversationId ?? null,

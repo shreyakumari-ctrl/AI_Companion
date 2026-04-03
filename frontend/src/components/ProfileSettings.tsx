@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { getProfile, updateProfile } from "@/services/api";
+import { getCurrentUser, updateAuthProfile } from "@/services/api";
 import { useChatStore } from "@/store/chatStore";
 
 interface ProfileData {
@@ -13,7 +13,8 @@ interface ProfileData {
 
 export default function ProfileSettings() {
   const pushToast = useChatStore((state) => state.pushToast);
-  const avatarDataUrl = useChatStore((state) => state.userProfile.avatarDataUrl);
+  const userProfile = useChatStore((state) => state.userProfile);
+  const avatarDataUrl = userProfile.avatarDataUrl;
   const updateUserProfile = useChatStore((state) => state.updateUserProfile);
   const [profile, setProfile] = useState<ProfileData>({
     name: "",
@@ -38,26 +39,59 @@ export default function ProfileSettings() {
   useEffect(() => {
     let active = true;
 
-    getProfile()
+    getCurrentUser()
       .then((data) => {
         if (!active) return;
-        setProfile(data);
-        reset(data);
-        updateUserProfile({ displayName: data.name });
+        const nextProfile = {
+          name: data.user.name ?? userProfile.displayName ?? "",
+          email: data.user.email ?? userProfile.email ?? "",
+          bio: userProfile.bio ?? "",
+        };
+        setProfile(nextProfile);
+        reset(nextProfile);
+        updateUserProfile({
+          displayName: nextProfile.name || data.user.email || "Clizel User",
+          email: nextProfile.email,
+          bio: nextProfile.bio,
+        });
         setLoading(false);
       })
       .catch((err) => {
         if (!active) return;
-        console.error("Profile load failed:", err);
-        setServerError("Unable to load profile settings. Please refresh and try again.");
+        
+        const error = err as any;
+        if (error?.status === 401) {
+          console.log("No active session. Using local profile state.");
+        } else {
+          console.warn("Profile load failed:", error?.message || err);
+        }
+        
+        const fallbackProfile = {
+          name: userProfile.displayName ?? "",
+          email: userProfile.email ?? "",
+          bio: userProfile.bio ?? "",
+        };
+        setProfile(fallbackProfile);
+        reset(fallbackProfile);
+        setServerError("Login required to sync profile changes with the backend.");
         setLoading(false);
-        pushToast({ message: "Unable to load profile settings.", type: "error" });
+        pushToast({
+          message: "Login required for backend profile sync.",
+          type: "error",
+        });
       });
 
     return () => {
       active = false;
     };
-  }, [pushToast, reset, updateUserProfile]);
+  }, [
+    pushToast,
+    reset,
+    updateUserProfile,
+    userProfile.bio,
+    userProfile.displayName,
+    userProfile.email,
+  ]);
 
   function handleAvatarSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -87,18 +121,41 @@ export default function ProfileSettings() {
     const previousProfile = profile;
     setProfile(data);
     setSubmitting(true);
+    setServerError(null);
+    updateUserProfile({
+      displayName: data.name,
+      email: data.email,
+      bio: data.bio,
+    });
     pushToast({ message: "Updating profile...", type: "info" });
 
     try {
-      const updated = await updateProfile(data);
-      setProfile(updated);
-      reset(updated, { keepValues: true });
-      updateUserProfile({ displayName: updated.name });
+      const updated = await updateAuthProfile({
+        name: data.name.trim(),
+      });
+      const nextProfile = {
+        name: updated.user.name ?? data.name,
+        email: updated.user.email ?? data.email,
+        bio: data.bio,
+      };
+      setProfile(nextProfile);
+      reset(nextProfile, { keepValues: true });
+      updateUserProfile({
+        displayName: nextProfile.name || updated.user.email || "Clizel User",
+        email: nextProfile.email,
+        bio: nextProfile.bio,
+      });
       pushToast({ message: "Profile saved successfully.", type: "info" });
     } catch (err) {
       setProfile(previousProfile);
       reset(previousProfile);
-      console.error("Profile save failed:", err);
+      updateUserProfile({
+        displayName: previousProfile.name,
+        email: previousProfile.email,
+        bio: previousProfile.bio,
+      });
+      console.warn("Profile save failed:", (err as any)?.message || err);
+      setServerError("Profile sync failed. Please log in again and retry.");
       pushToast({ message: "Could not save profile. Please try again.", type: "error" });
     } finally {
       setSubmitting(false);
@@ -200,6 +257,7 @@ export default function ProfileSettings() {
               })}
               className={errors.email ? "input-error" : ""}
               placeholder="you@example.com"
+              readOnly
             />
             {errors.email ? <span className="form-error">{errors.email.message}</span> : null}
           </div>

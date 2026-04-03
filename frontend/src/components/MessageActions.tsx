@@ -8,6 +8,8 @@ interface MessageActionsProps {
   onEdit?: () => void;
   onRetry?: () => void;
   onBranch?: () => void;
+  onFixReply?: () => void;
+  onExplain?: () => void;
 }
 
 function ThumbsUpIcon() {
@@ -117,6 +119,8 @@ const MessageActions = ({
   onEdit,
   onRetry,
   onBranch,
+  onFixReply,
+  onExplain,
 }: MessageActionsProps) => {
   const isAiMessage = sender === "ai";
   const [copied, setCopied] = useState(false);
@@ -257,6 +261,34 @@ const MessageActions = ({
 
         {menuOpen && (
           <div className="action-menu__panel" role="menu" aria-label="More message options">
+            {onFixReply && (
+              <button
+                type="button"
+                className="action-menu__item"
+                role="menuitem"
+                onClick={() => {
+                  onFixReply();
+                  setMenuOpen(false);
+                }}
+              >
+                Fix reply
+              </button>
+            )}
+
+            {onExplain && (
+              <button
+                type="button"
+                className="action-menu__item"
+                role="menuitem"
+                onClick={() => {
+                  onExplain();
+                  setMenuOpen(false);
+                }}
+              >
+                Explain
+              </button>
+            )}
+
             {onRetry && (
               <button
                 type="button"
