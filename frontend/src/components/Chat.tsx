@@ -48,6 +48,7 @@ const Chat = () => {
 
       await sendMessageStream(
         input,
+        "Gemini",
         personality,
         messages,
         { goals: "", interests: "" },

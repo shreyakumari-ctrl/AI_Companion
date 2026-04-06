@@ -21,6 +21,8 @@ export interface ChatAttachmentPayload {
 }
 
 export type ChatMode = "search" | "analyze" | "create";
+export type AIProvider = "Gemini" | "OpenAI" | "DeepSeek" | "Groq";
+type BackendProvider = "gemini" | "openai";
 
 export interface ApiError {
   status: number;
@@ -85,6 +87,7 @@ export interface ChatPromptOverrides {
 
 function sanitizeChatPayload(payload: {
   message: string;
+  provider: BackendProvider;
   history: MessageTurn[];
   conversationId?: string | null;
   userProfile: UserProfilePayload;
@@ -100,6 +103,14 @@ function sanitizeChatPayload(payload: {
     tonePreference: payload.tonePreference?.trim().slice(0, 60),
     mood: payload.mood?.trim().slice(0, 60),
   };
+}
+
+function toBackendProvider(provider: AIProvider): BackendProvider {
+  if (provider === "OpenAI") {
+    return "openai";
+  }
+
+  return "gemini";
 }
 
 function normalizeApiError(status: number, rawMessage: string) {
@@ -198,6 +209,7 @@ function consumeSseEventBlock(
 
 export async function sendMessage(
   message: string,
+  provider: AIProvider,
   personality: PersonalityPreset,
   history: MessageTurn[],
   userProfile: UserProfilePayload,
@@ -209,6 +221,7 @@ export async function sendMessage(
   let response: Response;
   const requestBody = JSON.stringify(sanitizeChatPayload({
     message,
+    provider: toBackendProvider(provider),
     history: history.slice(-5),
     conversationId,
     userProfile,
@@ -251,6 +264,7 @@ export async function sendMessage(
 
 export async function sendMessageStream(
   message: string,
+  provider: AIProvider,
   personality: PersonalityPreset,
   history: MessageTurn[],
   userProfile: UserProfilePayload,
@@ -265,6 +279,7 @@ export async function sendMessageStream(
   let receivedStreamChunk = false;
   const requestBody = JSON.stringify(sanitizeChatPayload({
     message,
+    provider: toBackendProvider(provider),
     history: history.slice(-5),
     conversationId,
     userProfile,

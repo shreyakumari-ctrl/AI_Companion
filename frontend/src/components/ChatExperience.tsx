@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,6 +10,7 @@ import {
   logoutUser,
   registerUser,
   sendMessageStream,
+  type AIProvider,
   type ChatAttachmentPayload,
   type ChatMode,
   type ConversationSummary,
@@ -89,8 +90,67 @@ type SettingsTab =
   | "activity"
   | "appearance";
 type ThemeMode = "dark" | "light";
+type VisualTheme = "default" | "vibe";
+type VibeMood = "happy" | "sad" | "angry" | "excited" | "tired";
+type SupportView = "help" | "terms";
 
 const THEME_STORAGE_KEY = "clizel-theme-mode";
+const VISUAL_THEME_STORAGE_KEY = "clizel-visual-theme";
+const VIBE_MOOD_STORAGE_KEY = "clizel-vibe-mood";
+const HEADER_UPGRADE_DISMISSED_KEY = "clizel-header-upgrade-dismissed";
+const DEFAULT_PROVIDER: AIProvider = "Gemini";
+const AI_PROVIDERS: AIProvider[] = ["Gemini", "OpenAI", "DeepSeek", "Groq"];
+const BACKEND_READY_PROVIDERS: AIProvider[] = ["Gemini", "OpenAI"];
+const PROVIDER_COPY: Record<AIProvider, { label: string; description: string }> = {
+  Gemini: {
+    label: "Gemini",
+    description: "Balanced default for everyday work",
+  },
+  OpenAI: {
+    label: "OpenAI",
+    description: "Strong for ambitious multi-step tasks",
+  },
+  DeepSeek: {
+    label: "DeepSeek",
+    description: "Reasoning focused for deeper analysis",
+  },
+  Groq: {
+    label: "Groq",
+    description: "Fastest for quick responses",
+  },
+};
+
+const VIBE_MOOD_OPTIONS: Array<{
+  id: VibeMood;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "happy",
+    label: "Happy",
+    description: "Warm yellow-orange glow",
+  },
+  {
+    id: "sad",
+    label: "Sad",
+    description: "Soft blue gradient",
+  },
+  {
+    id: "angry",
+    label: "Angry",
+    description: "Subtle red pulse",
+  },
+  {
+    id: "excited",
+    label: "Excited",
+    description: "Neon glow animation",
+  },
+  {
+    id: "tired",
+    label: "Tired",
+    description: "Dimmed low-brightness UI",
+  },
+];
 
 const personalityPromptMap: Record<
   PersonalityPreset,
@@ -176,6 +236,26 @@ function formatLongAssistantReply(text: string) {
   return `${bullets.join("\n")}${funLine}`;
 }
 
+function isBackendFallbackReply(text: string) {
+  return text.trim().startsWith("Clizel fallback reply:");
+}
+
+function buildFallbackApiError(provider: AIProvider): ApiError {
+  return {
+    status: 503,
+    message:
+      provider === DEFAULT_PROVIDER
+        ? "The selected provider is unavailable right now."
+        : `The ${provider} model is unavailable right now.`,
+  };
+}
+
+function isProviderUnavailableError(error: ApiError) {
+  return /model not available|provider|model|unsupported|not available|unavailable/i.test(
+    error.message,
+  );
+}
+
 function SparkIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -199,6 +279,36 @@ function SettingsIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M9.2 9a3.1 3.1 0 1 1 5.26 2.24c-.68.67-1.46 1.16-1.46 2.26M12 17.2h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3 5 6v5c0 4.4 2.9 8.48 7 9.8 4.1-1.32 7-5.4 7-9.8V6l-7-3Zm-2 9 1.5 1.5L15 10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -272,6 +382,21 @@ function ChatIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PricingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2ZM9 12a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm13-4V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -497,6 +622,7 @@ export default function ChatExperience({
   const [input, setInput] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
   const [errorState, setErrorState] = useState<ErrorViewState | null>(null);
+  const [providerNotice, setProviderNotice] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
@@ -504,6 +630,9 @@ export default function ChatExperience({
     ComposerAttachment[]
   >([]);
   const [activeTool, setActiveTool] = useState<ChatMode>("search");
+  const [selectedProvider, setSelectedProvider] =
+    useState<AIProvider>(DEFAULT_PROVIDER);
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
@@ -522,13 +651,20 @@ export default function ChatExperience({
   const [authPending, setAuthPending] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [profileUpdateModalOpen, setProfileUpdateModalOpen] = useState(false);
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
+  const [supportModalOpen, setSupportModalOpen] = useState(false);
+  const [supportView, setSupportView] = useState<SupportView>("help");
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
+  const [visualTheme, setVisualTheme] = useState<VisualTheme>("default");
+  const [vibeMood, setVibeMood] = useState<VibeMood>("excited");
+  const [headerUpgradeDismissed, setHeaderUpgradeDismissed] = useState(false);
   const [savedConversations, setSavedConversations] = useState<ConversationSummary[]>([]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composerMenuRef = useRef<HTMLDivElement>(null);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<{
@@ -561,12 +697,31 @@ export default function ChatExperience({
     }
 
     const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const storedVisualTheme = window.localStorage.getItem(VISUAL_THEME_STORAGE_KEY);
+    const storedVibeMood = window.localStorage.getItem(VIBE_MOOD_STORAGE_KEY);
+    const storedUpgradeDismissed =
+      window.localStorage.getItem(HEADER_UPGRADE_DISMISSED_KEY) === "true";
     if (storedTheme === "light" || storedTheme === "dark") {
       setThemeMode(storedTheme);
-      return;
+    } else {
+      setThemeMode("dark");
     }
 
-    setThemeMode("dark");
+    if (storedVisualTheme === "default" || storedVisualTheme === "vibe") {
+      setVisualTheme(storedVisualTheme);
+    }
+
+    if (
+      storedVibeMood === "happy" ||
+      storedVibeMood === "sad" ||
+      storedVibeMood === "angry" ||
+      storedVibeMood === "excited" ||
+      storedVibeMood === "tired"
+    ) {
+      setVibeMood(storedVibeMood);
+    }
+
+    setHeaderUpgradeDismissed(storedUpgradeDismissed);
   }, []);
 
   useEffect(() => {
@@ -577,6 +732,28 @@ export default function ChatExperience({
     document.documentElement.setAttribute("data-theme", themeMode);
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    document.documentElement.setAttribute("data-chat-visual-theme", visualTheme);
+    document.documentElement.setAttribute("data-chat-vibe-mood", vibeMood);
+    window.localStorage.setItem(VISUAL_THEME_STORAGE_KEY, visualTheme);
+    window.localStorage.setItem(VIBE_MOOD_STORAGE_KEY, vibeMood);
+  }, [visualTheme, vibeMood]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      HEADER_UPGRADE_DISMISSED_KEY,
+      headerUpgradeDismissed ? "true" : "false",
+    );
+  }, [headerUpgradeDismissed]);
 
   useEffect(() => {
     let active = true;
@@ -726,16 +903,20 @@ export default function ChatExperience({
       if (!composerMenuRef.current?.contains(event.target as Node)) {
         setComposerMenuOpen(false);
       }
+
+      if (!providerMenuRef.current?.contains(event.target as Node)) {
+        setProviderMenuOpen(false);
+      }
     }
 
-    if (composerMenuOpen) {
+    if (composerMenuOpen || providerMenuOpen) {
       window.addEventListener("mousedown", handleOutsideClick);
     }
 
     return () => {
       window.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [composerMenuOpen]);
+  }, [composerMenuOpen, providerMenuOpen]);
 
   useEffect(() => {
     return () => {
@@ -942,6 +1123,20 @@ export default function ChatExperience({
         kind === "drive"
           ? "Drive source chip added. Connect backend sync next for real document fetch."
           : "Notebook source chip added. Source grounding UI is ready.",
+    });
+  }
+
+  function handleOpenComposerProviderMenu() {
+    setComposerMenuOpen(false);
+    setProviderMenuOpen(true);
+  }
+
+  function handleUseSkillsShortcut() {
+    setComposerMenuOpen(false);
+    setActiveTool("create");
+    pushToast({
+      type: "info",
+      message: "Skills shortcut ready. Switched to Create mode.",
     });
   }
 
@@ -1205,7 +1400,26 @@ export default function ChatExperience({
     history: MessageTurn[],
     attachmentPayload: ChatAttachmentPayload[] = [],
     clearAttachmentsOnSuccess = false,
+    provider: AIProvider = selectedProvider,
   ) {
+    if (!BACKEND_READY_PROVIDERS.includes(provider)) {
+      setSelectedProvider(DEFAULT_PROVIDER);
+      setProviderMenuOpen(false);
+      setProviderNotice(`${provider} abhi available nahi hai. Switched to Gemini.`);
+      pushToast({
+        type: "error",
+        message: "Model not available",
+      });
+
+      return streamAssistantReply(
+        text,
+        history,
+        attachmentPayload,
+        clearAttachmentsOnSuccess,
+        DEFAULT_PROVIDER,
+      );
+    }
+
     const aiMessageId = addMessage({
       sender: "ai",
       text: "",
@@ -1220,6 +1434,7 @@ export default function ChatExperience({
       const promptPayload = buildPromptPayload(text, attachmentPayload);
       const streamMeta = await sendMessageStream(
         promptPayload.message,
+        provider,
         personality,
         history,
         {
@@ -1251,7 +1466,36 @@ export default function ChatExperience({
           .getState()
           .messages.find((message) => message.id === aiMessageId);
 
+        const receivedFallbackReply =
+          streamMeta?.provider === "fallback" ||
+          isBackendFallbackReply(currentMessage?.text ?? "");
+
+        if (receivedFallbackReply) {
+          removeMessage(aiMessageId);
+          setErrorState(resolveErrorState(buildFallbackApiError(provider)));
+          setProviderNotice(
+            provider === DEFAULT_PROVIDER
+              ? "Gemini abhi unavailable hai. Thoda baad retry karo."
+              : `${provider} unavailable tha, so Gemini pe switch kar diya.`,
+          );
+          pushToast({
+            type: "error",
+            message:
+              provider === DEFAULT_PROVIDER
+                ? "AI model is unavailable right now"
+                : "Model not available",
+          });
+
+          if (provider !== DEFAULT_PROVIDER) {
+            setSelectedProvider(DEFAULT_PROVIDER);
+            setProviderMenuOpen(false);
+          }
+
+          return;
+        }
+
         if (currentMessage?.text) {
+          setProviderNotice(null);
           updateMessage(aiMessageId, formatLongAssistantReply(currentMessage.text));
         }
 
@@ -1287,9 +1531,33 @@ export default function ChatExperience({
           type: "info",
           message: "Reply ka kuch part aa gaya tha, so maine partial response preserve kar diya.",
         });
+      } else if (
+        provider !== DEFAULT_PROVIDER &&
+        isProviderUnavailableError(apiErr)
+      ) {
+        removeMessage(aiMessageId);
+        setSelectedProvider(DEFAULT_PROVIDER);
+        setProviderMenuOpen(false);
+        setProviderNotice(`${provider} unavailable tha, so Gemini pe switch kar diya.`);
+        pushToast({
+          type: "error",
+          message: "Model not available",
+        });
+        await streamAssistantReply(
+          text,
+          history,
+          attachmentPayload,
+          clearAttachmentsOnSuccess,
+          DEFAULT_PROVIDER,
+        );
       } else {
         removeMessage(aiMessageId);
         setErrorState(resolveErrorState(apiErr));
+        setProviderNotice(
+          provider === DEFAULT_PROVIDER
+            ? "Gemini reply abhi nahi aa paya. Please retry."
+            : `${provider} response nahi de paaya.`,
+        );
         pushToast({
           type: "error",
           message:
@@ -1534,6 +1802,31 @@ export default function ChatExperience({
     setPanelOpen(false);
   }
 
+  function openSupportModal(view: SupportView) {
+    setSupportView(view);
+    setSupportModalOpen(true);
+    setDrawerSettingsOpen(false);
+    setPanelOpen(false);
+  }
+
+  function openThemeModal() {
+    setThemeModalOpen(true);
+    setDrawerSettingsOpen(false);
+    setPanelOpen(false);
+  }
+
+  function handleReportIssue() {
+    if (typeof window !== "undefined") {
+      window.location.href =
+        "mailto:support@clizel.ai?subject=Clizel%20Support%20Request&body=Hi%20Clizel%20team%2C%0A%0AI%20need%20help%20with%3A%20";
+    }
+
+    pushToast({
+      type: "info",
+      message: "Support email opened so you can report the issue.",
+    });
+  }
+
   function openSettingsSection(section: SettingsTab) {
     if (section === "profileUpdate") {
       openProfileUpdateModal();
@@ -1558,11 +1851,34 @@ export default function ChatExperience({
     setPanelOpen(true);
   }
 
-  function handleToggleTheme() {
-    setThemeMode((current) => (current === "dark" ? "light" : "dark"));
+  function handleSetThemeMode(nextThemeMode: ThemeMode) {
+    setThemeMode(nextThemeMode);
     pushToast({
       type: "info",
-      message: `Theme switched to ${themeMode === "dark" ? "light" : "dark"} mode`,
+      message: `Theme switched to ${nextThemeMode} mode`,
+    });
+  }
+
+  function handleToggleTheme() {
+    handleSetThemeMode(themeMode === "dark" ? "light" : "dark");
+  }
+
+  function handleSetVisualTheme(nextVisualTheme: VisualTheme) {
+    setVisualTheme(nextVisualTheme);
+    pushToast({
+      type: "info",
+      message:
+        nextVisualTheme === "vibe"
+          ? "Vibe mode enabled from Theme settings."
+          : "Default chat theme restored.",
+    });
+  }
+
+  function handleSetVibeMood(nextMood: VibeMood) {
+    setVibeMood(nextMood);
+    pushToast({
+      type: "info",
+      message: `${nextMood.charAt(0).toUpperCase()}${nextMood.slice(1)} mood applied.`,
     });
   }
 
@@ -1647,7 +1963,9 @@ export default function ChatExperience({
 
   return (
     <div
-      className={`chat-shell ${isImmersive ? "chat-shell--immersive" : ""}`.trim()}
+      className={`chat-shell ${isImmersive ? "chat-shell--immersive" : ""} ${
+        visualTheme === "vibe" ? `chat-shell--vibe mood-${vibeMood}` : ""
+      }`.trim()}
     >
       <CursorSmokeTrail />
       <OnboardingSlider
@@ -1664,8 +1982,18 @@ export default function ChatExperience({
       />
 
       <div
-        className={`chat-panel ${isImmersive ? "chat-panel--immersive" : ""}`.trim()}
+        className={`chat-panel ${isImmersive ? "chat-panel--immersive" : ""} ${
+          visualTheme === "vibe" ? `chat-panel--vibe mood-${vibeMood}` : ""
+        }`.trim()}
       >
+        {visualTheme === "vibe" ? (
+          <div className={`chat-vibe-backdrop mood-${vibeMood}`} aria-hidden="true">
+            <span className="chat-vibe-orb chat-vibe-orb--one" />
+            <span className="chat-vibe-orb chat-vibe-orb--two" />
+            <span className="chat-vibe-orb chat-vibe-orb--three" />
+            <span className="chat-vibe-particles" />
+          </div>
+        ) : null}
         <div
           className={`dashboard-drawer-backdrop ${panelOpen ? "is-open" : ""}`}
           onClick={() => setPanelOpen(false)}
@@ -1842,6 +2170,17 @@ export default function ChatExperience({
           <div className="dashboard-drawer__footer">
             <button
               type="button"
+              className="workspace-quick-action"
+              onClick={() => {
+                router.push("/pricing");
+                setPanelOpen(false);
+              }}
+            >
+              <PricingIcon />
+              <span>Go Upgrade</span>
+            </button>
+            <button
+              type="button"
               className={`workspace-quick-action ${
                 drawerSettingsOpen ? "is-active" : ""
               }`}
@@ -1863,10 +2202,10 @@ export default function ChatExperience({
                 <button
                   type="button"
                   className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={handleToggleTheme}
+                  onClick={openThemeModal}
                 >
                   <ThemeIcon mode={themeMode} />
-                  <span>{themeMode === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                  <span>Theme</span>
                 </button>
                 <button
                   type="button"
@@ -1875,6 +2214,22 @@ export default function ChatExperience({
                 >
                   <GridIcon />
                   <span>Activity</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-quick-action workspace-quick-action--sub"
+                  onClick={() => openSupportModal("help")}
+                >
+                  <HelpIcon />
+                  <span>Help Center</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-quick-action workspace-quick-action--sub"
+                  onClick={() => openSupportModal("terms")}
+                >
+                  <ShieldIcon />
+                  <span>Terms & Conditions</span>
                 </button>
               </div>
             ) : null}
@@ -1982,6 +2337,17 @@ export default function ChatExperience({
               <div className="workspace-user-footer">
                 <button
                   type="button"
+                  className="workspace-upgrade-btn"
+                  onClick={() => router.push("/pricing")}
+                >
+                  <PricingIcon />
+                  <span className="workspace-upgrade-btn__copy">
+                    <strong>Upgrade to Pro</strong>
+                    <small>Unlock smarter tools and premium access</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
                   className="workspace-user-pill"
                   onClick={() => openSettingsSection("profile")}
                   title="Open profile"
@@ -2003,18 +2369,18 @@ export default function ChatExperience({
                   className={`dashboard-sidebar__theme-icon ${
                     themeMode === "dark" ? "is-dark" : "is-light"
                   }`}
-                  onClick={handleToggleTheme}
-                  title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
-                  aria-label="Toggle theme"
+                  onClick={openThemeModal}
+                  title="Open theme settings"
+                  aria-label="Open theme settings"
                 >
                   <ThemeIcon mode={themeMode} />
                 </button>
                 <button
                   type="button"
                   className="workspace-footer-icon"
-                  onClick={() => openSettingsSection("profileUpdate")}
-                  title="Settings"
-                  aria-label="Settings"
+                  onClick={openThemeModal}
+                  title="Theme settings"
+                  aria-label="Theme settings"
                 >
                   <SettingsIcon />
                 </button>
@@ -2058,6 +2424,30 @@ export default function ChatExperience({
               <h1 className="chat-title">Clizel</h1>
             </div>
           </div>
+          {!headerUpgradeDismissed ? (
+            <div className="chat-header-center">
+              <div className="chat-upgrade-btn">
+                <button
+                  type="button"
+                  className="chat-upgrade-btn__main"
+                  title="Upgrade"
+                  onClick={() => router.push("/pricing")}
+                >
+                  <PricingIcon />
+                  <span className="chat-upgrade-btn__label">Upgrade</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-upgrade-close"
+                  aria-label="Hide upgrade"
+                  title="Hide upgrade"
+                  onClick={() => setHeaderUpgradeDismissed(true)}
+                >
+                  x
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="chat-header-actions">
             <button
               type="button"
@@ -2288,7 +2678,7 @@ export default function ChatExperience({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.ppt,.pptx"
+            accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.ppt,.pptx"
             multiple
             hidden
             onChange={(event) => handleFileSelection(event, "file")}
@@ -2322,6 +2712,12 @@ export default function ChatExperience({
                 {composerStatusLabel}
               </div>
             </div>
+
+            {providerNotice && (
+              <div className="composer-provider-notice" role="status" aria-live="polite">
+                {providerNotice}
+              </div>
+            )}
 
             {shouldShowSocialCarousel && (
               <SocialScriptCarousel
@@ -2395,37 +2791,114 @@ export default function ChatExperience({
                     <button
                       type="button"
                       className="composer-menu__item"
-                      onClick={() => photoInputRef.current?.click()}
-                    >
-                      Photos
-                    </button>
-                    <button
-                      type="button"
-                      className="composer-menu__item"
-                      onClick={handleOpenCamera}
-                    >
-                      Camera
-                    </button>
-                    <button
-                      type="button"
-                      className="composer-menu__item"
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      Files
+                      <span className="composer-menu__item-icon" aria-hidden="true">
+                        ↗
+                      </span>
+                      <span className="composer-menu__item-meta">
+                        <span>Upload files or images</span>
+                      </span>
                     </button>
                     <button
                       type="button"
                       className="composer-menu__item"
                       onClick={() => handleAddCloudSource("drive")}
                     >
-                      Drive
+                      <span className="composer-menu__item-icon" aria-hidden="true">
+                        ⌁
+                      </span>
+                      <span className="composer-menu__item-meta">
+                        <span>Connectors and sources</span>
+                      </span>
+                      <span className="composer-menu__item-chevron" aria-hidden="true">
+                        ›
+                      </span>
                     </button>
                     <button
                       type="button"
                       className="composer-menu__item"
-                      onClick={() => handleAddCloudSource("notebook")}
+                      onClick={handleUseSkillsShortcut}
                     >
-                      Notebook
+                      <span className="composer-menu__item-icon" aria-hidden="true">
+                        ✦
+                      </span>
+                      <span className="composer-menu__item-meta">
+                        <span>Use skills</span>
+                      </span>
+                      <span className="composer-menu__item-chevron" aria-hidden="true">
+                        ›
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={handleOpenComposerProviderMenu}
+                    >
+                      <span className="composer-menu__item-icon" aria-hidden="true">
+                        ◌
+                      </span>
+                      <span className="composer-menu__item-meta">
+                        <span>Select orchestrator model</span>
+                        <small>{selectedProvider}</small>
+                      </span>
+                      <span className="composer-menu__item-chevron" aria-hidden="true">
+                        ›
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {providerMenuOpen && (
+                  <div
+                    className="composer-provider-menu"
+                    ref={providerMenuRef}
+                    role="listbox"
+                    aria-label="AI providers"
+                  >
+                    {AI_PROVIDERS.map((providerOption) => {
+                      const isActive = providerOption === selectedProvider;
+                      const providerDetails = PROVIDER_COPY[providerOption];
+
+                      return (
+                        <button
+                          key={providerOption}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          className={`composer-provider-option ${
+                            isActive ? "composer-provider-option--active" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedProvider(providerOption);
+                            setProviderMenuOpen(false);
+                            setProviderNotice(null);
+                          }}
+                        >
+                          <span className="composer-provider-option__meta">
+                            <span className="composer-provider-option__name">
+                              {providerDetails.label}
+                            </span>
+                            <span className="composer-provider-option__subtle">
+                              {providerDetails.description}
+                            </span>
+                          </span>
+                          {isActive && (
+                            <span className="composer-provider-option__check" aria-hidden="true">
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    <div className="composer-provider-menu__divider" aria-hidden="true" />
+                    <button
+                      type="button"
+                      className="composer-provider-menu__footer"
+                      onClick={() => setProviderMenuOpen(false)}
+                    >
+                      <span>More models</span>
+                      <span aria-hidden="true">›</span>
                     </button>
                   </div>
                 )}
@@ -2708,6 +3181,239 @@ export default function ChatExperience({
             </div>
             <div className="profile-update-modal__body">
               <ProfileSettings />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {themeModalOpen && (
+        <div
+          className="overlay-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Theme settings"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setThemeModalOpen(false);
+            }
+          }}
+        >
+          <div className="theme-modal__card">
+            <div className="theme-modal__header">
+              <div>
+                <p className="dashboard-sidebar__eyebrow">Theme</p>
+                <h3>Choose your chat look</h3>
+                <p>
+                  Default UI safe rahega, aur premium Vibe Mode yahin se on/off hoga.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="auth-modal__close"
+                onClick={() => setThemeModalOpen(false)}
+                aria-label="Close theme settings"
+              >
+                Ã—
+              </button>
+            </div>
+
+            <div className="theme-modal__body">
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Base theme</strong>
+                  <span>Switch between the normal dark and light app theme.</span>
+                </div>
+                <div className="theme-modal__toggle-row">
+                  <button
+                    type="button"
+                    className={`theme-choice ${themeMode === "dark" ? "is-active" : ""}`}
+                    onClick={() => handleSetThemeMode("dark")}
+                  >
+                    Dark
+                  </button>
+                  <button
+                    type="button"
+                    className={`theme-choice ${themeMode === "light" ? "is-active" : ""}`}
+                    onClick={() => handleSetThemeMode("light")}
+                  >
+                    Light
+                  </button>
+                </div>
+              </section>
+
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Chat style</strong>
+                  <span>Default keeps your current UI. Vibe Mode adds premium glow and motion.</span>
+                </div>
+                <div className="theme-style-grid">
+                  <button
+                    type="button"
+                    className={`theme-style-card ${
+                      visualTheme === "default" ? "is-active" : ""
+                    }`}
+                    onClick={() => handleSetVisualTheme("default")}
+                  >
+                    <span className="theme-style-card__badge">Standard</span>
+                    <strong>Default UI</strong>
+                    <small>Current clean Clizel layout</small>
+                  </button>
+                  <button
+                    type="button"
+                    className={`theme-style-card theme-style-card--premium ${
+                      visualTheme === "vibe" ? "is-active" : ""
+                    }`}
+                    onClick={() => handleSetVisualTheme("vibe")}
+                  >
+                    <span className="theme-style-card__badge">Premium</span>
+                    <strong>Vibe Mode</strong>
+                    <small>Glow, gradients, premium feel</small>
+                  </button>
+                </div>
+              </section>
+
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Mood</strong>
+                  <span>These colors only show inside Vibe Mode.</span>
+                </div>
+                <div className="theme-mood-grid">
+                  {VIBE_MOOD_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`theme-mood-chip ${
+                        vibeMood === option.id ? "is-active" : ""
+                      }`}
+                      onClick={() => handleSetVibeMood(option.id)}
+                    >
+                      <span>{option.label}</span>
+                      <small>{option.description}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {supportModalOpen && (
+        <div
+          className="overlay-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={supportView === "help" ? "Help center" : "Terms and conditions"}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setSupportModalOpen(false);
+            }
+          }}
+        >
+          <div className="support-modal__card">
+            <div className="support-modal__header">
+              <div>
+                <p className="dashboard-sidebar__eyebrow">
+                  {supportView === "help" ? "Support" : "Policy"}
+                </p>
+                <h3>{supportView === "help" ? "Help Center" : "Terms & Conditions"}</h3>
+              </div>
+              <button
+                type="button"
+                className="auth-modal__close"
+                onClick={() => setSupportModalOpen(false)}
+                aria-label="Close support modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="support-modal__body">
+              {supportView === "help" ? (
+                <>
+                  <div className="support-modal__panel">
+                    <strong>Need help with Clizel?</strong>
+                    <p>
+                      If something feels broken, confusing, or missing, you can report it here just like in most chat
+                      apps.
+                    </p>
+                  </div>
+
+                  <div className="support-modal__actions">
+                    <button
+                      type="button"
+                      className="support-modal__primary"
+                      onClick={handleReportIssue}
+                    >
+                      Report a problem
+                    </button>
+                    <button
+                      type="button"
+                      className="support-modal__secondary"
+                      onClick={() => setSupportView("terms")}
+                    >
+                      View terms and conditions
+                    </button>
+                  </div>
+
+                  <div className="support-modal__list">
+                    <div className="support-modal__item">
+                      <strong>Email support</strong>
+                      <span>`support@clizel.ai`</span>
+                    </div>
+                    <div className="support-modal__item">
+                      <strong>Best for</strong>
+                      <span>Login issues, billing questions, bugs, and feedback</span>
+                    </div>
+                    <div className="support-modal__item">
+                      <strong>What to send</strong>
+                      <span>Describe the issue, what you expected, and any screenshot if possible</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="support-modal__panel">
+                    <strong>Using Clizel responsibly</strong>
+                    <p>
+                      By using Clizel, you agree to use the product lawfully, keep your account secure, and avoid
+                      harmful or abusive behavior.
+                    </p>
+                  </div>
+
+                  <div className="support-modal__list">
+                    <div className="support-modal__item">
+                      <strong>Privacy and safety</strong>
+                      <span>Your conversations should not be used for harassment, fraud, or illegal activity.</span>
+                    </div>
+                    <div className="support-modal__item">
+                      <strong>Account responsibility</strong>
+                      <span>You are responsible for your account access and any actions taken from it.</span>
+                    </div>
+                    <div className="support-modal__item">
+                      <strong>Service changes</strong>
+                      <span>Features, plans, or availability may change as the product improves over time.</span>
+                    </div>
+                  </div>
+
+                  <div className="support-modal__actions">
+                    <button
+                      type="button"
+                      className="support-modal__primary"
+                      onClick={() => setSupportView("help")}
+                    >
+                      Open help center
+                    </button>
+                    <button
+                      type="button"
+                      className="support-modal__secondary"
+                      onClick={handleReportIssue}
+                    >
+                      Contact support
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
