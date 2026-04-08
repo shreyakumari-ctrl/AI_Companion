@@ -1,7 +1,8 @@
 import { env } from "./env";
-import { providerRegistry, type HistoryTurn, type InferenceRequest } from "./adapters";
+import { providerRegistry, type HistoryTurn, type InferenceRequest, type Attachment } from "./adapters";
 import { HttpError } from "./http-error";
 import { prisma } from "./prisma";
+import type { Prisma } from "../generated/prisma/client";
 import { resolveTemplate } from "./promptTemplates";
 import { buildChatCacheKey, responseCache } from "./response-cache";
 import { normalizeBrandText } from "./brand-text";
@@ -20,6 +21,7 @@ export type ChatExecutionInput = {
   userId?: string | null;
   tonePreference?: string;
   mood?: string;
+  attachments?: Attachment[];
 };
 
 export type AuthContext = {
@@ -323,6 +325,7 @@ async function prepareChatRequest(
           systemInstruction,
         },
         userId: effectiveUserId,
+        attachments: params.attachments,
       },
     }),
     inferenceRequest: {
@@ -332,6 +335,7 @@ async function prepareChatRequest(
         systemInstruction,
       },
       userId: effectiveUserId,
+      attachments: params.attachments,
     },
   };
 }
@@ -361,6 +365,7 @@ async function persistConversationTurn(params: {
   message: string;
   reply: string;
   provider: string;
+  attachments?: Attachment[];
 }) {
   const conversationId = await ensureConversation({
     conversationId: params.conversationId,
@@ -376,6 +381,7 @@ async function persistConversationTurn(params: {
         userId: params.userId,
         conversationId,
         provider: "client",
+        attachments: params.attachments as Prisma.InputJsonValue | undefined,
       },
     }),
     prisma.chatMessage.create({
@@ -478,6 +484,7 @@ export async function executeChat(
     message: params.message,
     reply,
     provider,
+    attachments: params.attachments,
   });
 
   return {
@@ -579,6 +586,7 @@ export async function streamChat(
     message: params.message,
     reply,
     provider,
+    attachments: params.attachments,
   });
 
   return {

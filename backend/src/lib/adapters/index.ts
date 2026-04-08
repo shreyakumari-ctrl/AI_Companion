@@ -1,4 +1,4 @@
-export type { LLMAdapter, InferenceRequest, HistoryTurn, ResolvedTemplate } from "./gemini";
+export type { LLMAdapter, InferenceRequest, HistoryTurn, ResolvedTemplate, Attachment } from "./gemini";
 export { geminiAdapter } from "./gemini";
 export { openaiAdapter } from "./openai";
 

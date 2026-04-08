@@ -10,11 +10,19 @@ export interface ResolvedTemplate {
   systemInstruction: string;
 }
 
+export interface Attachment {
+  type: "image" | "file";
+  url?: string;
+  base64?: string;
+  name?: string;
+}
+
 export interface InferenceRequest {
   message: string;
   history: HistoryTurn[];
   template: ResolvedTemplate;
   userId?: string | null;
+  attachments?: Attachment[];
 }
 
 export interface LLMAdapter {

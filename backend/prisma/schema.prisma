@@ -40,6 +40,7 @@ model ChatMessage {
   role           String
   content        String
   provider       String?
+  attachments    Json?
   userId         String?
   user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   conversationId String?
