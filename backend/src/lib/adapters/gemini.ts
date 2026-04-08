@@ -23,6 +23,7 @@ export interface InferenceRequest {
   template: ResolvedTemplate;
   userId?: string | null;
   attachments?: Attachment[];
+  mode?: "search" | "analyze" | "create";
 }
 
 export interface LLMAdapter {

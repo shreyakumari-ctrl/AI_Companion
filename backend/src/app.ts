@@ -9,6 +9,7 @@ import authRouter from "./routes/auth";
 import chatRouter from "./routes/chat";
 import conversationsRouter from "./routes/conversations";
 import inferenceRouter from "./routes/inference";
+import activityRouter from "./routes/activity";
 
 const app = express();
 
@@ -84,6 +85,7 @@ app.use("/chat", chatRouter);
 app.use("/api", inferenceRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/conversations", conversationsRouter);
+app.use("/api/activity", activityRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof Error && error.message.includes("allowed by CORS")) {

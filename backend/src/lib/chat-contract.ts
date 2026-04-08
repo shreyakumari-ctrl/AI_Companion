@@ -23,6 +23,7 @@ export const chatRequestSchema = z.object({
   tonePreference: z.string().trim().min(1).max(60).optional(),
   mood: z.string().trim().min(1).max(60).optional(),
   attachments: z.array(attachmentSchema).max(10).optional(),
+  mode: z.enum(["search", "analyze", "create"]).optional(),
 });
 
 export type ChatRequestBody = z.infer<typeof chatRequestSchema>;

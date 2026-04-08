@@ -22,6 +22,7 @@ export type ChatExecutionInput = {
   tonePreference?: string;
   mood?: string;
   attachments?: Attachment[];
+  mode?: "search" | "analyze" | "create";
 };
 
 export type AuthContext = {
@@ -305,6 +306,16 @@ async function prepareChatRequest(
     mood,
   });
 
+  const modeInstructions: Record<NonNullable<ChatExecutionInput["mode"]>, string> = {
+    search: "You are a research assistant. Provide accurate, factual, and well-structured answers.",
+    analyze: "You analyze information critically. Break down problems and provide clear reasoning.",
+    create: "You are a creative assistant. Generate original, engaging, and expressive content.",
+  };
+
+  const finalInstruction = params.mode
+    ? `${systemInstruction}\n\n${modeInstructions[params.mode]}`
+    : systemInstruction;
+
   return {
     adapter,
     provider,
@@ -322,20 +333,22 @@ async function prepareChatRequest(
         message: params.message,
         history: recentTurns,
         template: {
-          systemInstruction,
+          systemInstruction: finalInstruction,
         },
         userId: effectiveUserId,
         attachments: params.attachments,
+        mode: params.mode,
       },
     }),
     inferenceRequest: {
       message: params.message,
       history: recentTurns,
       template: {
-        systemInstruction,
+        systemInstruction: finalInstruction,
       },
       userId: effectiveUserId,
       attachments: params.attachments,
+      mode: params.mode,
     },
   };
 }

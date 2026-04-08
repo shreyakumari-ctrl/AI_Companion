@@ -31,12 +31,16 @@ const profileSchema = z
     name: z.string().trim().min(1).max(120).nullable().optional(),
     tonePreference: z.string().trim().min(1).max(60).optional(),
     mood: z.string().trim().min(1).max(60).optional(),
+    bio: z.string().trim().max(500).nullable().optional(),
+    avatarUrl: z.string().trim().url().nullable().optional(),
   })
   .refine(
     (payload) =>
       payload.name !== undefined ||
       payload.tonePreference !== undefined ||
-      payload.mood !== undefined,
+      payload.mood !== undefined ||
+      payload.bio !== undefined ||
+      payload.avatarUrl !== undefined,
     {
       message: "At least one profile field must be provided.",
     },
@@ -174,6 +178,8 @@ router.get("/me", optionalAuth, requireAuth, async (req, res, next) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        bio: user.bio,
+        avatarUrl: user.avatarUrl,
         tonePreference: user.tonePreference,
         mood: user.mood,
       },
@@ -199,6 +205,8 @@ router.patch("/profile", optionalAuth, requireAuth, async (req, res, next) => {
           ? { tonePreference: payload.tonePreference }
           : {}),
         ...(payload.mood !== undefined ? { mood: payload.mood } : {}),
+        ...(payload.bio !== undefined ? { bio: payload.bio } : {}),
+        ...(payload.avatarUrl !== undefined ? { avatarUrl: payload.avatarUrl } : {}),
       },
     });
 
@@ -207,6 +215,8 @@ router.patch("/profile", optionalAuth, requireAuth, async (req, res, next) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        bio: user.bio,
+        avatarUrl: user.avatarUrl,
         tonePreference: user.tonePreference,
         mood: user.mood,
       },

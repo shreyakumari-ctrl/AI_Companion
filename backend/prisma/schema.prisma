@@ -13,6 +13,8 @@ model User {
   email          String?        @unique
   passwordHash   String?
   name           String?
+  bio            String?
+  avatarUrl      String?
   tonePreference String         @default("friendly")
   mood           String         @default("curious")
   chats          ChatMessage[]
