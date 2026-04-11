@@ -23,9 +23,11 @@ export interface UserProfile {
   personality: "Friendly" | "Funny" | "Motivational";
   onboardingCompleted: boolean;
   displayName?: string;
-  avatarDataUrl?: string;
-  bio?: string;
   email?: string;
+  bio?: string;
+  avatarDataUrl?: string;
+  userPlan?: string;
+  isPro?: boolean;
 }
 
 interface ChatStore {
@@ -53,6 +55,12 @@ const defaultUserProfile: UserProfile = {
   interests: "",
   personality: "Friendly",
   onboardingCompleted: false,
+  displayName: "",
+  email: "",
+  bio: "",
+  avatarDataUrl: "",
+  userPlan: "Free",
+  isPro: false,
 };
 
 export const useChatStore = create<ChatStore>()(

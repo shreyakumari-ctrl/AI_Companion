@@ -4,21 +4,25 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().default("file:./prisma/dev.db"),
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .trim()
+    .transform((value) => (value.length > 0 ? value : undefined))
+    .optional(),
   GEMINI_API_KEY: z
     .string()
     .trim()
     .transform((value) => (value.length > 0 ? value : undefined))
     .optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
   OPENAI_API_KEY: z.string().trim().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   DEEPSEEK_API_KEY: z.string().optional(),
-DEEPSEEK_BASE_URL: z.string().default("https://api.deepseek.com/v1"),
-DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
-
-GROQ_API_KEY: z.string().optional(),
-GROQ_BASE_URL: z.string().default("https://api.groq.com/openai/v1"),
-GROQ_MODEL: z.string().default("llama3-70b-8192"),
+  DEEPSEEK_BASE_URL: z.string().default("https://api.deepseek.com/v1"),
+  DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_BASE_URL: z.string().default("https://api.groq.com/openai/v1"),
+  GROQ_MODEL: z.string().default("llama3-70b-8192"),
   DEFAULT_PROMPT_TEMPLATE: z.string().default("default"),
   CONVERSATION_MEMORY_LIMIT: z.coerce.number().int().min(1).max(15).default(12),
   JWT_ACCESS_SECRET: z
@@ -41,6 +45,7 @@ export const env = envSchema.parse({
   PORT: process.env.PORT,
   FRONTEND_URL: process.env.FRONTEND_URL,
   DATABASE_URL: process.env.DATABASE_URL,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,

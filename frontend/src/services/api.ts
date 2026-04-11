@@ -563,6 +563,18 @@ export async function registerUser(
   return session;
 }
 
+export async function loginWithGoogleCredential(
+  credential: string,
+): Promise<AuthSessionPayload> {
+  const response = await authRequest("/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+  const session = (await parseJsonOrError(response)) as AuthSessionPayload;
+  storeAccessToken(session.accessToken);
+  return session;
+}
+
 export async function logoutUser(): Promise<void> {
   const response = await authRequest("/logout", {
     method: "POST",

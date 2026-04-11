@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { type CSSProperties, ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getConversationMessages,
@@ -33,6 +33,10 @@ import {
   getWelcomeMessage,
   type PersonalityPreset,
 } from "@/lib/chatPersonality";
+import PremiumEffects from "./chat-ui/PremiumEffects";
+
+type VisualTheme = "default" | "vibe";
+type BackgroundEffect = "none" | "glow" | "sparkles" | "waves";
 
 type AttachmentKind = "photo" | "camera" | "file" | "drive" | "notebook";
 
@@ -90,7 +94,6 @@ type SettingsTab =
   | "activity"
   | "appearance";
 type ThemeMode = "dark" | "light";
-type VisualTheme = "default" | "vibe";
 type VibeMood = "happy" | "sad" | "angry" | "excited" | "tired";
 type SupportView = "help" | "terms";
 
@@ -98,6 +101,17 @@ const THEME_STORAGE_KEY = "clizel-theme-mode";
 const VISUAL_THEME_STORAGE_KEY = "clizel-visual-theme";
 const VIBE_MOOD_STORAGE_KEY = "clizel-vibe-mood";
 const HEADER_UPGRADE_DISMISSED_KEY = "clizel-header-upgrade-dismissed";
+const CUSTOM_THEME_COLORS_KEY = "clizel_custom_theme_colors";
+const PRESET_THEME_KEY = "clizel_custom_theme_preset";
+const BACKGROUND_EFFECT_KEY = "clizel_background_effect";
+
+const PREMIUM_THEME_PRESETS: Record<string, string[]> = {
+  "Neon Dream": ["#ff00ff", "#00ffff", "#ff00ff"],
+  "Cyberdeck": ["#00ff00", "#003300", "#00ff00"],
+  "Sunset": ["#ff5f6d", "#ffc371", "#ff5f6d"],
+  "Midnight": ["#232526", "#414345", "#232526"],
+  "Orbital": ["#4facfe", "#00f2fe", "#4facfe"]
+};
 const DEFAULT_PROVIDER: AIProvider = "Gemini";
 const AI_PROVIDERS: AIProvider[] = ["Gemini", "OpenAI", "DeepSeek", "Groq"];
 const BACKEND_READY_PROVIDERS: AIProvider[] = ["Gemini", "OpenAI"];
@@ -124,31 +138,83 @@ const VIBE_MOOD_OPTIONS: Array<{
   id: VibeMood;
   label: string;
   description: string;
+  accent: [string, string];
+  surface: string;
 }> = [
   {
     id: "happy",
     label: "Happy",
     description: "Warm yellow-orange glow",
+    accent: ["#f59e0b", "#fb7185"],
+    surface: "linear-gradient(135deg, rgba(245, 158, 11, 0.24), rgba(251, 113, 133, 0.12))",
   },
   {
     id: "sad",
     label: "Sad",
     description: "Soft blue gradient",
+    accent: ["#60a5fa", "#38bdf8"],
+    surface: "linear-gradient(135deg, rgba(96, 165, 250, 0.22), rgba(56, 189, 248, 0.12))",
   },
   {
     id: "angry",
     label: "Angry",
     description: "Subtle red pulse",
+    accent: ["#ef4444", "#f97316"],
+    surface: "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(249, 115, 22, 0.12))",
   },
   {
     id: "excited",
     label: "Excited",
     description: "Neon glow animation",
+    accent: ["#8b5cf6", "#ec4899"],
+    surface: "linear-gradient(135deg, rgba(139, 92, 246, 0.24), rgba(236, 72, 153, 0.14))",
   },
   {
     id: "tired",
     label: "Tired",
     description: "Dimmed low-brightness UI",
+    accent: ["#475569", "#0f172a"],
+    surface: "linear-gradient(135deg, rgba(71, 85, 105, 0.24), rgba(15, 23, 42, 0.14))",
+  },
+];
+
+const BASE_THEME_OPTIONS: Array<{
+  id: ThemeMode;
+  label: string;
+  description: string;
+  eyebrow: string;
+}> = [
+  {
+    id: "dark",
+    label: "Night Studio",
+    description: "High contrast panels with a focused late-night feel.",
+    eyebrow: "Recommended",
+  },
+  {
+    id: "light",
+    label: "Soft Daylight",
+    description: "Airy workspace with brighter cards and softer shadows.",
+    eyebrow: "Clean",
+  },
+];
+
+const VISUAL_THEME_OPTIONS: Array<{
+  id: VisualTheme;
+  label: string;
+  description: string;
+  badge: string;
+}> = [
+  {
+    id: "default",
+    label: "Clean Default",
+    description: "Balanced chat UI with subtle depth and minimal motion.",
+    badge: "Classic",
+  },
+  {
+    id: "vibe",
+    label: "Vibe Mode",
+    description: "Discord-style glow, animated atmosphere, and richer mood presets.",
+    badge: "Immersive",
   },
 ];
 
@@ -640,6 +706,7 @@ export default function ChatExperience({
   const [isLagging, setIsLagging] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [drawerSettingsOpen, setDrawerSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState<"main" | "theme" | "subscription">("main");
   const [activePanelTab, setActivePanelTab] = useState<DashboardTab>("chats");
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("profileUpdate");
@@ -658,6 +725,12 @@ export default function ChatExperience({
   const [visualTheme, setVisualTheme] = useState<VisualTheme>("default");
   const [vibeMood, setVibeMood] = useState<VibeMood>("excited");
   const [headerUpgradeDismissed, setHeaderUpgradeDismissed] = useState(false);
+
+  // Premium Theme States
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [customThemeColors, setCustomThemeColors] = useState<string[]>(["#6366f1", "#a855f7", "#6366f1"]);
+  const [customThemePreset, setCustomThemePreset] = useState("Default");
+  const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffect>("none");
   const [savedConversations, setSavedConversations] = useState<ConversationSummary[]>([]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
@@ -692,37 +765,50 @@ export default function ChatExperience({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
+    if (!drawerSettingsOpen) {
+      setSettingsView("main");
     }
+  }, [drawerSettingsOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
     const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
     const storedVisualTheme = window.localStorage.getItem(VISUAL_THEME_STORAGE_KEY);
     const storedVibeMood = window.localStorage.getItem(VIBE_MOOD_STORAGE_KEY);
-    const storedUpgradeDismissed =
-      window.localStorage.getItem(HEADER_UPGRADE_DISMISSED_KEY) === "true";
-    if (storedTheme === "light" || storedTheme === "dark") {
-      setThemeMode(storedTheme);
-    } else {
-      setThemeMode("dark");
-    }
+    const storedUpgradeDismissed = window.localStorage.getItem(HEADER_UPGRADE_DISMISSED_KEY) === "true";
 
-    if (storedVisualTheme === "default" || storedVisualTheme === "vibe") {
-      setVisualTheme(storedVisualTheme);
+    if (storedTheme === "light" || storedTheme === "dark") setThemeMode(storedTheme);
+    if (storedVisualTheme === "default" || storedVisualTheme === "vibe") setVisualTheme(storedVisualTheme);
+    if (["happy", "sad", "angry", "excited", "tired"].includes(storedVibeMood || "")) {
+      setVibeMood(storedVibeMood as any);
     }
-
-    if (
-      storedVibeMood === "happy" ||
-      storedVibeMood === "sad" ||
-      storedVibeMood === "angry" ||
-      storedVibeMood === "excited" ||
-      storedVibeMood === "tired"
-    ) {
-      setVibeMood(storedVibeMood);
-    }
-
     setHeaderUpgradeDismissed(storedUpgradeDismissed);
+
+    // Premium Hydration
+    const sCol = window.localStorage.getItem(CUSTOM_THEME_COLORS_KEY);
+    const sPre = window.localStorage.getItem(PRESET_THEME_KEY);
+    const sEff = window.localStorage.getItem(BACKGROUND_EFFECT_KEY);
+
+    if (sCol) {
+      try { setCustomThemeColors(JSON.parse(sCol)); } catch (e) {}
+    }
+    if (sPre) setCustomThemePreset(sPre);
+    if (sEff) setBackgroundEffect(sEff as BackgroundEffect);
+    if (sCol || sPre) setIsPremiumUser(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedPlanLabel = window.localStorage.getItem("userPlanLabel");
+    const storedIsPro = window.localStorage.getItem("userPlanIsPro");
+    if (!storedPlanLabel && storedIsPro === null) return;
+
+    updateUserProfile({
+      ...(storedPlanLabel ? { userPlan: storedPlanLabel } : {}),
+      ...(storedIsPro !== null ? { isPro: storedIsPro === "true" } : {}),
+    });
+  }, [updateUserProfile]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -734,9 +820,28 @@ export default function ChatExperience({
   }, [themeMode]);
 
   useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
+    if (typeof document === "undefined") return;
+
+    if (visualTheme === "vibe" && customThemeColors.length >= 2) {
+      const gradient = `linear-gradient(135deg, ${customThemeColors[0]}, ${customThemeColors[1]})`;
+      document.documentElement.style.setProperty("--primary-gradient", gradient);
+      document.documentElement.style.setProperty("--accent-primary", customThemeColors[0]);
+      document.documentElement.style.setProperty("--bubble-user", customThemeColors[0]);
+      
+      // Save to localStorage
+      window.localStorage.setItem(CUSTOM_THEME_COLORS_KEY, JSON.stringify(customThemeColors));
+      window.localStorage.setItem(PRESET_THEME_KEY, customThemePreset);
+      window.localStorage.setItem(BACKGROUND_EFFECT_KEY, backgroundEffect);
+    } else {
+      document.documentElement.style.removeProperty("--primary-gradient");
+      document.documentElement.style.removeProperty("--accent-primary");
+      document.documentElement.style.removeProperty("--bubble-user");
     }
+    
+    window.localStorage.setItem(VISUAL_THEME_STORAGE_KEY, visualTheme);
+  }, [customThemeColors, customThemePreset, visualTheme, backgroundEffect]);
+
+  useEffect(() => {
 
     document.documentElement.setAttribute("data-chat-visual-theme", visualTheme);
     document.documentElement.setAttribute("data-chat-vibe-mood", vibeMood);
@@ -1986,6 +2091,18 @@ export default function ChatExperience({
           visualTheme === "vibe" ? `chat-panel--vibe mood-${vibeMood}` : ""
         }`.trim()}
       >
+        {visualTheme === "vibe" && (
+          <PremiumEffects
+            isPremium={isPremiumUser}
+            mood={vibeMood}
+            effect={backgroundEffect}
+            customColors={{
+              primary: customThemeColors[0] ?? "#6366f1",
+              secondary: customThemeColors[1] ?? "#a855f7",
+              accent: customThemeColors[2] ?? "#6366f1",
+            }}
+          />
+        )}
         {visualTheme === "vibe" ? (
           <div className={`chat-vibe-backdrop mood-${vibeMood}`} aria-hidden="true">
             <span className="chat-vibe-orb chat-vibe-orb--one" />
@@ -2073,12 +2190,13 @@ export default function ChatExperience({
               <button
                 type="button"
                 className="workspace-quick-action"
+                style={{ color: '#818cf8', background: 'rgba(99, 102, 241, 0.1)', borderColor: 'rgba(99, 102, 241, 0.2)' }}
                 onClick={() => {
-                  handleWorkspaceAction("customize");
+                  setThemeModalOpen(true);
                 }}
               >
                 <CustomizeIcon />
-                <span>Customize</span>
+                <span style={{ fontWeight: 700 }}>Vibe Designer</span>
               </button>
             </div>
 
@@ -2191,46 +2309,147 @@ export default function ChatExperience({
             </button>
             {drawerSettingsOpen ? (
               <div className="dashboard-drawer-settings-menu">
-                <button
-                  type="button"
-                  className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={openProfileUpdateModal}
-                >
-                  <UserAvatarIcon />
-                  <span>Profile Update</span>
-                </button>
-                <button
-                  type="button"
-                  className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={openThemeModal}
-                >
-                  <ThemeIcon mode={themeMode} />
-                  <span>Theme</span>
-                </button>
-                <button
-                  type="button"
-                  className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={() => openSettingsSection("activity")}
-                >
-                  <GridIcon />
-                  <span>Activity</span>
-                </button>
-                <button
-                  type="button"
-                  className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={() => openSupportModal("help")}
-                >
-                  <HelpIcon />
-                  <span>Help Center</span>
-                </button>
-                <button
-                  type="button"
-                  className="workspace-quick-action workspace-quick-action--sub"
-                  onClick={() => openSupportModal("terms")}
-                >
-                  <ShieldIcon />
-                  <span>Terms & Conditions</span>
-                </button>
+                {settingsView === "main" ? (
+                  <>
+                    <div className="settings-group">
+                      <div className="settings-group-title">Account & Profile</div>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={openProfileUpdateModal}
+                      >
+                        <UserAvatarIcon />
+                        <span>Profile Update</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => openSettingsSection("activity")}
+                      >
+                        <GridIcon />
+                        <span>Activity Feed</span>
+                      </button>
+                    </div>
+
+                    <div className="settings-group">
+                      <div className="settings-group-title">Experience</div>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => setSettingsView("theme")}
+                      >
+                        <ThemeIcon mode={themeMode} />
+                        <span>Theme</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => setSettingsView("subscription")}
+                      >
+                        <PricingIcon />
+                        <span className="flex-between">
+                          Subscription
+                          <span className="upgrade-badge">Upgrade</span>
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="settings-group">
+                      <div className="settings-group-title">Support & Legal</div>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => openSupportModal("help")}
+                      >
+                        <HelpIcon />
+                        <span>Help Center</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => {
+                          router.push("/terms");
+                          setPanelOpen(false);
+                        }}
+                      >
+                        <ShieldIcon />
+                        <span>Terms</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-quick-action workspace-quick-action--sub"
+                        onClick={() => {
+                          router.push("/privacy");
+                          setPanelOpen(false);
+                        }}
+                      >
+                        <ShieldIcon />
+                        <span>Privacy</span>
+                      </button>
+                    </div>
+                  </>
+                ) : settingsView === "theme" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="settings-back-btn"
+                      onClick={() => setSettingsView("main")}
+                    >
+                      {"<- Back to settings"}
+                    </button>
+                    <div className="nested-settings-title">Theme</div>
+                    <button
+                      type="button"
+                      className={`workspace-quick-action workspace-quick-action--sub ${
+                        themeMode === "light" ? "is-active" : ""
+                      }`}
+                      onClick={() => setThemeMode("light")}
+                    >
+                      <ThemeIcon mode="light" />
+                      <span>Light</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`workspace-quick-action workspace-quick-action--sub ${
+                        themeMode === "dark" ? "is-active" : ""
+                      }`}
+                      onClick={() => setThemeMode("dark")}
+                    >
+                      <ThemeIcon mode="dark" />
+                      <span>Dark</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="settings-back-btn"
+                      onClick={() => setSettingsView("main")}
+                    >
+                      {"<- Back to settings"}
+                    </button>
+                    <div className="nested-settings-title">Subscription</div>
+                    <div className="subscription-card-compact">
+                      <strong>{userProfile.userPlan ?? "Free Plan"}</strong>
+                      <p>
+                        {userProfile.isPro
+                          ? "Premium access unlocked with your current plan."
+                          : "Basic features with standard AI speed."}
+                      </p>
+                      <button
+                        type="button"
+                        className="upgrade-action-btn"
+                        onClick={() => {
+                          router.push("/pricing");
+                          setPanelOpen(false);
+                          setDrawerSettingsOpen(false);
+                        }}
+                      >
+                        Upgrade Plan
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : null}
             {authUser ? (
@@ -2360,8 +2579,11 @@ export default function ChatExperience({
                     )}
                   </span>
                   <span className="workspace-user-pill__meta">
-                    <strong>{profileDisplayName}</strong>
-                    <small>{authUser ? "Logged in" : "Free plan"}</small>
+                    <span className="flex-between">
+                      <strong>{profileDisplayName}</strong>
+                      {userProfile.isPro ? <span className="upgrade-badge">Pro</span> : null}
+                    </span>
+                    <small>{userProfile.userPlan ?? "Free plan"}</small>
                   </span>
                 </button>
                 <button
@@ -3186,118 +3408,6 @@ export default function ChatExperience({
         </div>
       )}
 
-      {themeModalOpen && (
-        <div
-          className="overlay-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Theme settings"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setThemeModalOpen(false);
-            }
-          }}
-        >
-          <div className="theme-modal__card">
-            <div className="theme-modal__header">
-              <div>
-                <p className="dashboard-sidebar__eyebrow">Theme</p>
-                <h3>Choose your chat look</h3>
-                <p>
-                  Default UI safe rahega, aur premium Vibe Mode yahin se on/off hoga.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="auth-modal__close"
-                onClick={() => setThemeModalOpen(false)}
-                aria-label="Close theme settings"
-              >
-                Ã—
-              </button>
-            </div>
-
-            <div className="theme-modal__body">
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Base theme</strong>
-                  <span>Switch between the normal dark and light app theme.</span>
-                </div>
-                <div className="theme-modal__toggle-row">
-                  <button
-                    type="button"
-                    className={`theme-choice ${themeMode === "dark" ? "is-active" : ""}`}
-                    onClick={() => handleSetThemeMode("dark")}
-                  >
-                    Dark
-                  </button>
-                  <button
-                    type="button"
-                    className={`theme-choice ${themeMode === "light" ? "is-active" : ""}`}
-                    onClick={() => handleSetThemeMode("light")}
-                  >
-                    Light
-                  </button>
-                </div>
-              </section>
-
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Chat style</strong>
-                  <span>Default keeps your current UI. Vibe Mode adds premium glow and motion.</span>
-                </div>
-                <div className="theme-style-grid">
-                  <button
-                    type="button"
-                    className={`theme-style-card ${
-                      visualTheme === "default" ? "is-active" : ""
-                    }`}
-                    onClick={() => handleSetVisualTheme("default")}
-                  >
-                    <span className="theme-style-card__badge">Standard</span>
-                    <strong>Default UI</strong>
-                    <small>Current clean Clizel layout</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={`theme-style-card theme-style-card--premium ${
-                      visualTheme === "vibe" ? "is-active" : ""
-                    }`}
-                    onClick={() => handleSetVisualTheme("vibe")}
-                  >
-                    <span className="theme-style-card__badge">Premium</span>
-                    <strong>Vibe Mode</strong>
-                    <small>Glow, gradients, premium feel</small>
-                  </button>
-                </div>
-              </section>
-
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Mood</strong>
-                  <span>These colors only show inside Vibe Mode.</span>
-                </div>
-                <div className="theme-mood-grid">
-                  {VIBE_MOOD_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={`theme-mood-chip ${
-                        vibeMood === option.id ? "is-active" : ""
-                      }`}
-                      onClick={() => handleSetVibeMood(option.id)}
-                    >
-                      <span>{option.label}</span>
-                      <small>{option.description}</small>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
-
       {supportModalOpen && (
         <div
           className="overlay-backdrop"
@@ -3414,6 +3524,192 @@ export default function ChatExperience({
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {themeModalOpen && (
+        <div className="support-modal-backdrop is-open" onClick={() => setThemeModalOpen(false)}>
+          <div className="support-modal__card theme-modal__fixed-height" onClick={(e) => e.stopPropagation()}>
+            <div className="support-modal__header">
+              <div className="support-modal__header-copy">
+                <strong>Vibe Designer</strong>
+                <p>Personalize your experience with custom colors and motion.</p>
+              </div>
+              <button type="button" className="auth-modal__close" onClick={() => setThemeModalOpen(false)}>×</button>
+            </div>
+
+            <div className="theme-modal__body premium-scroll" style={{ overflowY: 'auto', maxHeight: '70vh' }}>
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Base theme</strong>
+                  <span>Pick the app chrome that feels best before styling the chat itself.</span>
+                </div>
+                <div className="theme-preview-grid theme-preview-grid--base">
+                  {BASE_THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`theme-preview-card theme-preview-card--base theme-preview-card--${option.id} ${
+                        themeMode === option.id ? "is-active" : ""
+                      }`}
+                      onClick={() => setThemeMode(option.id)}
+                    >
+                      <span className="theme-preview-card__eyebrow">{option.eyebrow}</span>
+                      <div className="theme-preview-card__mockup" aria-hidden="true">
+                        <span className="theme-preview-card__sidebar" />
+                        <span className="theme-preview-card__panel">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                      <div className="theme-preview-card__copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Chat style</strong>
+                  <span>Select a full interface look, then fine-tune the vibe with mini preview cards below.</span>
+                </div>
+                <div className="theme-preview-grid theme-preview-grid--style">
+                  {VISUAL_THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`theme-preview-card theme-preview-card--style ${
+                        option.id === "vibe" ? "theme-preview-card--vibe" : "theme-preview-card--default"
+                      } ${visualTheme === option.id ? "is-active" : ""}`}
+                      onClick={() => setVisualTheme(option.id)}
+                    >
+                      <span className="theme-preview-card__badge">{option.badge}</span>
+                      <div className="theme-preview-card__scene" aria-hidden="true">
+                        <span className="theme-preview-card__scene-nav" />
+                        <span className="theme-preview-card__scene-main">
+                          <i className="theme-preview-card__bubble theme-preview-card__bubble--ai" />
+                          <i className="theme-preview-card__bubble theme-preview-card__bubble--user" />
+                          <i className="theme-preview-card__composer" />
+                        </span>
+                      </div>
+                      <div className="theme-preview-card__copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Vibe presets</strong>
+                  <span>Small preview cards let the user see how each mood shifts the interface before choosing it.</span>
+                </div>
+                <div className={`theme-mood-grid ${visualTheme !== "vibe" ? "is-disabled" : ""}`}>
+                  {VIBE_MOOD_OPTIONS.map((mood) => (
+                    <button
+                      key={mood.id}
+                      type="button"
+                      className={`theme-mood-chip ${vibeMood === mood.id ? "is-active" : ""}`}
+                      onClick={() => {
+                        setVisualTheme("vibe");
+                        setVibeMood(mood.id);
+                      }}
+                      style={
+                        {
+                          "--theme-mood-surface": mood.surface,
+                          "--theme-mood-accent-a": mood.accent[0],
+                          "--theme-mood-accent-b": mood.accent[1],
+                        } as CSSProperties
+                      }
+                    >
+                      <div className="theme-mood-chip__preview" aria-hidden="true">
+                        <span className="theme-mood-chip__spark" />
+                        <span className="theme-mood-chip__layout">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                      <span>{mood.label}</span>
+                      <small>{mood.description}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="theme-modal__section">
+                <div className="theme-modal__section-copy">
+                  <strong>Custom Polish</strong>
+                  <span>Exclusive presets and premium colors for Vibe Mode.</span>
+                </div>
+                {!isPremiumUser ? (
+                  <div className="upgrade-teaser-card">
+                    <div className="upgrade-teaser-card__content">
+                      <strong>Nitro Theme Upgrade</strong>
+                      <p>Unlock custom gradients, orbital glow, and animated waves.</p>
+                    </div>
+                    <button type="button" className="upgrade-teaser-card__btn" onClick={() => setIsPremiumUser(true)}>Unlock now</button>
+                  </div>
+                ) : (
+                  <div className="premium-builder-grid">
+                    <div className="premium-presets-row">
+                      {Object.keys(PREMIUM_THEME_PRESETS).map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className={`premium-preset-chip ${customThemePreset === preset ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setCustomThemePreset(preset);
+                            setCustomThemeColors(PREMIUM_THEME_PRESETS[preset]);
+                          }}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    <div className="premium-controls-grid">
+                      <div className="premium-control-item">
+                        <label>Primary Glow</label>
+                        <input 
+                          type="color" 
+                          value={customThemeColors[0]} 
+                          onChange={(e) => setCustomThemeColors([e.target.value, customThemeColors[1], customThemeColors[2]])}
+                        />
+                      </div>
+                      <div className="premium-control-item">
+                        <label>Secondary</label>
+                        <input 
+                          type="color" 
+                          value={customThemeColors[1]} 
+                          onChange={(e) => setCustomThemeColors([customThemeColors[0], e.target.value, customThemeColors[2]])}
+                        />
+                      </div>
+                      <div className="premium-control-item">
+                        <label>Atmosphere</label>
+                        <select 
+                          value={backgroundEffect} 
+                          onChange={(e) => setBackgroundEffect(e.target.value as BackgroundEffect)}
+                          className="premium-select"
+                        >
+                          <option value="none">None</option>
+                          <option value="glow">Orbital Glow</option>
+                          <option value="sparkles">Starfield Sparkles</option>
+                          <option value="waves">Kinetic Waves</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </div>

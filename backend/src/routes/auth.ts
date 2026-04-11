@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import {
   clearRefreshCookie,
@@ -10,10 +11,12 @@ import {
   setRefreshCookie,
   verifyPassword,
 } from "../lib/auth";
+import { env } from "../lib/env";
 import { prisma } from "../lib/prisma";
 import { optionalAuth, requireAuth, type AuthenticatedRequest } from "../middleware/auth";
 
 const router = Router();
+const googleClient = new OAuth2Client();
 
 const registerSchema = z.object({
   email: z.string().trim().email().max(255),
@@ -24,6 +27,10 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().trim().email().max(255),
   password: z.string().min(8).max(128),
+});
+
+const googleAuthSchema = z.object({
+  credential: z.string().trim().min(1),
 });
 
 const profileSchema = z
@@ -110,6 +117,61 @@ router.post("/login", async (req, res, next) => {
 
     return res.status(200).json(session);
   } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/google", async (req, res, next) => {
+  try {
+    if (!env.GOOGLE_CLIENT_ID) {
+      return res.status(503).json({
+        error: "Google sign-in is not configured on the server.",
+      });
+    }
+
+    const payload = googleAuthSchema.parse(req.body);
+    const ticket = await googleClient.verifyIdToken({
+      idToken: payload.credential,
+      audience: env.GOOGLE_CLIENT_ID,
+    });
+    const googleUser = ticket.getPayload();
+
+    if (!googleUser?.email || !googleUser.email_verified) {
+      return res.status(400).json({
+        error: "Google account email could not be verified.",
+      });
+    }
+
+    const email = googleUser.email.toLowerCase();
+    const name = googleUser.name?.trim() || null;
+    const avatarUrl = googleUser.picture?.trim() || null;
+
+    const user = await prisma.user.upsert({
+      where: {
+        email,
+      },
+      update: {
+        ...(name ? { name } : {}),
+        ...(avatarUrl ? { avatarUrl } : {}),
+      },
+      create: {
+        email,
+        name,
+        avatarUrl,
+      },
+    });
+
+    const session = await createSessionTokens(user);
+    setRefreshCookie(res, session.refreshToken);
+
+    return res.status(200).json(session);
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(401).json({
+        error: "Google sign-in token was invalid or expired.",
+      });
+    }
+
     return next(error);
   }
 });
