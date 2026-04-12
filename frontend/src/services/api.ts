@@ -414,6 +414,8 @@ export interface AuthUser {
   name: string | null;
   tonePreference: string;
   mood: string;
+  plan?: "FREE" | "PRO";
+  isPro?: boolean;
 }
 
 export interface AuthSessionPayload {
@@ -628,4 +630,69 @@ export async function getConversationMessages(
     messages: ConversationMessage[];
   };
   return data.messages;
+}
+
+// ============================================
+// PAYMENT API
+// ============================================
+
+export interface PaymentOrderPayload {
+  amount: number; // in INR
+  currency: string;
+  receipt: string;
+}
+
+export interface PaymentOrderResponse {
+  orderId: string;
+  amount: number;
+  currency: string;
+  createdAt: string;
+}
+
+export interface PaymentVerifyPayload {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}
+
+export interface PaymentVerifyResponse {
+  success: boolean;
+  message: string;
+  user?: AuthUser;
+}
+
+export async function createPaymentOrder(
+  amount: number,
+): Promise<PaymentOrderResponse> {
+  const response = await authenticatedRequest(
+    `${API_URL}/api/payment/create-order`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        amount,
+        currency: "INR",
+        receipt: `order_${Date.now()}`,
+      }),
+    },
+  );
+  return parseJsonOrError(response);
+}
+
+export async function verifyPayment(
+  orderId: string,
+  paymentId: string,
+  signature: string,
+): Promise<PaymentVerifyResponse> {
+  const response = await authenticatedRequest(
+    `${API_URL}/api/payment/verify`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        orderId,
+        paymentId,
+        signature,
+      }),
+    },
+  );
+  return parseJsonOrError(response);
 }

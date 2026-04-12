@@ -10,6 +10,8 @@ import {
   logoutUser,
   registerUser,
   sendMessageStream,
+  createPaymentOrder,
+  verifyPayment,
   type AIProvider,
   type ChatAttachmentPayload,
   type ChatMode,
@@ -594,6 +596,36 @@ function UserAvatarIcon() {
   );
 }
 
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 5C7 5 2.73 8.11 1 12.46c1.73 4.35 6 7.54 11 7.54s9.27-3.19 11-7.54C21.27 8.11 17 5 12 5Zm0 10a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5Zm0-4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M3 3l18 18M6.5 10c-1.38 2.02-2.2 4.49-2.2 7.15 0 7.73 6.27 14 14 14 2.66 0 5.13-.82 7.15-2.2M9.86 9.86a3.99 3.99 0 0 0 5.28 5.28M23 12c-1.73-4.35-6-7.54-11-7.54-1.55 0-3.05.23-4.49.67"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function takeNextDisplayToken(buffer: string, force = false) {
   if (!buffer) {
     return "";
@@ -714,6 +746,9 @@ export default function ChatExperience({
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -733,6 +768,10 @@ export default function ChatExperience({
   const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffect>("none");
   const [savedConversations, setSavedConversations] = useState<ConversationSummary[]>([]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+
+  // Payment States
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -870,9 +909,12 @@ export default function ChatExperience({
         }
 
         setAuthUser(data.user);
+        const isPro = data.user.plan === "PRO";
         updateUserProfile({
           displayName: data.user.name ?? data.user.email ?? "Clizel User",
           email: data.user.email ?? "",
+          userPlan: data.user.plan ?? "Free",
+          isPro: isPro,
         });
       })
       .catch(() => {
@@ -2003,6 +2045,14 @@ export default function ChatExperience({
       return;
     }
 
+    if (authMode === "register" && authPassword !== authConfirmPassword) {
+      pushToast({
+        type: "error",
+        message: "Passwords do not match.",
+      });
+      return;
+    }
+
     setAuthPending(true);
 
     try {
@@ -2017,13 +2067,14 @@ export default function ChatExperience({
         email: session.user.email ?? "",
       });
       setAuthPassword("");
+      setAuthConfirmPassword("");
       setAuthModalOpen(false);
       getConversations()
         .then((items) => setSavedConversations(items))
         .catch((error) => console.error("Conversation list refresh failed:", error));
       pushToast({
         type: "info",
-        message: authMode === "login" ? "Logged in successfully âœ…" : "Account created âœ…",
+        message: authMode === "login" ? "Logged in successfully ✔…" : "Account created ✔…",
       });
     } catch (error) {
       const message =
@@ -2044,6 +2095,7 @@ export default function ChatExperience({
       setAuthUser(null);
       setSavedConversations([]);
       setAuthPassword("");
+      setAuthConfirmPassword("");
       pushToast({
         type: "info",
         message: "Logged out cleanly",
@@ -2056,6 +2108,146 @@ export default function ChatExperience({
       pushToast({ type: "error", message });
     } finally {
       setAuthPending(false);
+    }
+  }
+
+  const loadRazorpayScript = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (typeof window === "undefined") {
+        resolve(false);
+        return;
+      }
+
+      if ((window as Window & { Razorpay?: unknown }).Razorpay) {
+        resolve(true);
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  async function handleUpgradePlan() {
+    const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY;
+    if (!razorpayKey) {
+      setPaymentError("Payment system not configured");
+      pushToast({ type: "error", message: "Payment system is not available." });
+      return;
+    }
+
+    setPaymentProcessing(true);
+    setPaymentError(null);
+
+    try {
+      // Step 1: Create order from backend
+      const orderData = await createPaymentOrder(1999);
+      
+      // Step 2: Load Razorpay script
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        throw new Error("Could not load Razorpay");
+      }
+
+      const RazorpayConstructor = (window as Window & { Razorpay?: any }).Razorpay;
+      if (!RazorpayConstructor) {
+        throw new Error("Razorpay is not available");
+      }
+
+      const amount = 1999 * 100; // ₹1999 in paise
+      const options = {
+        key: razorpayKey,
+        amount,
+        currency: "INR",
+        name: "Clizel",
+        description: "Upgrade to Pro Plan",
+        order_id: orderData.orderId,
+        prefill: {
+          name: userProfile.displayName || "User",
+          email: userProfile.email || "",
+        },
+        theme: {
+          color: themeMode === "dark" ? "#3b82f6" : "#2563eb",
+        },
+        handler: async (response: {
+          razorpay_payment_id: string;
+          razorpay_order_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            // Step 3: Verify payment with backend
+            const verifyResult = await verifyPayment(
+              response.razorpay_order_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature,
+            );
+
+            if (verifyResult.success) {
+              // Step 4: Fetch updated user data
+              const userData = await getCurrentUser();
+              
+              // Step 5: Update UI state
+              setAuthUser(userData.user);
+              const isPro = userData.user.plan === "PRO";
+              updateUserProfile({
+                userPlan: isPro ? "Pro Plan" : "Free",
+                isPro: isPro,
+              });
+
+              setPaymentProcessing(false);
+              setDrawerSettingsOpen(false);
+              setSettingsView("subscription");
+
+              pushToast({
+                message: "Payment Successful 🎉 Welcome to Pro!",
+                type: "info",
+              });
+            } else {
+              throw new Error(verifyResult.message || "Payment verification failed");
+            }
+          } catch (verifyError) {
+            const message =
+              verifyError && typeof verifyError === "object" && "message" in verifyError
+                ? String(verifyError.message)
+                : "Payment verification failed";
+            setPaymentError(message);
+            setPaymentProcessing(false);
+            pushToast({ type: "error", message: "Payment verification failed" });
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaymentProcessing(false);
+            pushToast({
+              message: "Payment was cancelled.",
+              type: "error",
+            });
+          },
+        },
+      };
+
+      const instance = new RazorpayConstructor(options);
+      instance.on("payment.failed", () => {
+        setPaymentProcessing(false);
+        setPaymentError("Payment failed. Please try again.");
+        pushToast({
+          message: "Payment failed ❌ Please retry.",
+          type: "error",
+        });
+      });
+
+      instance.open();
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(error.message)
+          : "Payment processing failed";
+      setPaymentError(message);
+      setPaymentProcessing(false);
+      pushToast({ type: "error", message });
     }
   }
 
@@ -2430,23 +2622,54 @@ export default function ChatExperience({
                     </button>
                     <div className="nested-settings-title">Subscription</div>
                     <div className="subscription-card-compact">
-                      <strong>{userProfile.userPlan ?? "Free Plan"}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <strong>{userProfile.userPlan ?? "Free Plan"}</strong>
+                        {userProfile.isPro && <span className="pro-badge-small">✨ Pro</span>}
+                      </div>
                       <p>
                         {userProfile.isPro
                           ? "Premium access unlocked with your current plan."
                           : "Basic features with standard AI speed."}
                       </p>
-                      <button
-                        type="button"
-                        className="upgrade-action-btn"
-                        onClick={() => {
-                          router.push("/pricing");
-                          setPanelOpen(false);
-                          setDrawerSettingsOpen(false);
-                        }}
-                      >
-                        Upgrade Plan
-                      </button>
+                      {!userProfile.isPro ? (
+                        <>
+                          <div className="subscription-price">
+                            <span className="price">₹1999</span>
+                            <span className="period">/month</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="upgrade-action-btn"
+                            onClick={handleUpgradePlan}
+                            disabled={paymentProcessing}
+                          >
+                            {paymentProcessing ? (
+                              <>
+                                <span className="payment-loader"></span>
+                                Processing...
+                              </>
+                            ) : (
+                              "Upgrade to Pro"
+                            )}
+                          </button>
+                          {paymentError && (
+                            <div className="payment-error-message">
+                              {paymentError}
+                              <button
+                                type="button"
+                                className="payment-error-retry"
+                                onClick={handleUpgradePlan}
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="subscription-current-message">
+                          ✓ You are enjoying premium benefits
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -3344,13 +3567,42 @@ export default function ChatExperience({
                   placeholder="Email address"
                   autoComplete="email"
                 />
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="Password"
-                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
-                />
+                <div className="auth-modal__password-wrapper">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder="Password"
+                    autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                  />
+                  <button
+                    type="button"
+                    className="auth-modal__password-toggle"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+                {authMode === "register" && authPassword.trim() ? (
+                  <div className="auth-modal__password-wrapper">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={authConfirmPassword}
+                      onChange={(event) => setAuthConfirmPassword(event.target.value)}
+                      placeholder="Confirm password"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="auth-modal__password-toggle"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                ) : null}
                 <button type="submit" className="auth-modal__submit" disabled={authPending}>
                   {authPending
                     ? "Please wait..."
@@ -3363,7 +3615,13 @@ export default function ChatExperience({
               <button
                 type="button"
                 className="auth-modal__switch"
-                onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}
+                onClick={() => {
+                  setAuthMode(authMode === "login" ? "register" : "login");
+                  setAuthPassword("");
+                  setAuthConfirmPassword("");
+                  setShowPassword(false);
+                  setShowConfirmPassword(false);
+                }}
               >
                 {authMode === "login"
                   ? "Need an account? Switch to register"
