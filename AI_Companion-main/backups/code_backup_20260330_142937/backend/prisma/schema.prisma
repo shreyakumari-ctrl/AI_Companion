@@ -1,0 +1,66 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id             String         @id @default(cuid())
+  email          String?        @unique
+  passwordHash   String?
+  name           String?
+  tonePreference String         @default("friendly")
+  mood           String         @default("curious")
+  chats          ChatMessage[]
+  conversations  Conversation[]
+  sessions       Session[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Conversation {
+  id        String        @id @default(cuid())
+  title     String?
+  userId    String?
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+model ChatMessage {
+  id             String        @id @default(cuid())
+  role           String
+  content        String
+  provider       String?
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+  @@index([conversationId, createdAt])
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}

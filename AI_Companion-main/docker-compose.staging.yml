@@ -1,0 +1,14 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - backend/.env.staging
+    ports:
+      - "5000:5000"
+    volumes:
+      - backend-staging-data:/app/backend/prisma/data
+
+volumes:
+  backend-staging-data:
