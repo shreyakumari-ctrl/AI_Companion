@@ -1,0 +1,462 @@
+          <div className="dashboard-content">
+        <header className="chat-header">
+          <div className="chat-header-info">
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Open panel"
+              onClick={() => openPanel("chats")}
+            >
+              <MenuIcon />
+            </button>
+            <div className="chat-avatar">?</div>
+            <div>
+              <h1 className="chat-title">Clizel AI</h1>
+              <div className="chat-status">
+                <span className="status-dot" />{" "}
+                {!isOnline
+                  ? "Reconnecting..."
+                  : isLagging
+                    ? "Network lag ??"
+                    : isImmersive
+                      ? "Focus mode, full chat flow"
+                      : "Always here for you"}
+              </div>
+            </div>
+          </div>
+          <div className="chat-header-actions">
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Features"
+              onClick={() => openPanel("features")}
+            >
+              <GridIcon />
+            </button>
+            <Link
+              href={isImmersive ? "/chat" : "/chat/live"}
+              className="chat-mode-link"
+            >
+              {isImmersive ? "Compact view" : "Open full chat"}
+            </Link>
+            <button
+              type="button"
+              className="dashboard-icon-btn"
+              title="Settings"
+              onClick={() => openPanel("settings")}
+            >
+              <SettingsIcon />
+            </button>
+            <button
+              type="button"
+              className="dashboard-profile-pill"
+              title="Profile"
+              onClick={() => openPanel("settings")}
+            >
+              <span className="dashboard-profile-pill__avatar">
+                {userProfile.avatarDataUrl ? (
+                  <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                ) : (
+                  profileInitial
+                )}
+              </span>
+              <span className="dashboard-profile-pill__label">
+                {authUser ? "Signed in" : "Guest"}
+              </span>
+            </button>
+          </div>
+        </header>
+        <PersonalitySelector
+          selected={personality}
+          onSelect={(id) =>
+            updateUserProfile({ personality: id as PersonalityPreset })
+          }
+          disabled={isStreaming || showOnboarding}
+        />
+        <div className="chat-messages">
+          <div className="chat-log" aria-live="polite" aria-label="Chat messages">
+            {hasOnlyWelcomeMessage && !errorState && (
+              <section className="chat-blank">
+                <p className="chat-blank__eyebrow">Start a new conversation</p>
+                <h2 className="chat-blank__title">
+                  {isImmersive
+                    ? "What can Clizel help with today?"
+                    : "Start a new conversation"}
+                </h2>
+                <p className="chat-blank__copy">
+                  Ask for advice, drop a messy thought, or paste markdown. Clizel
+                  keeps the convo flowing with smoother streaming, better context
+                  memory, and cleaner replies that feel more like texting a best
+                  friend than using a bot.
+                </p>
+                <div className="chat-blank__prompts">
+                  <button
+                    type="button"
+                    onClick={() => setInput("Help me plan my week in a calm way.")}
+                  >
+                    Calm planning
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInput("Give me a funny pep talk before I study.")
+                    }
+                  >
+                    Funny pep talk
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInput("Explain async/await with a code example.")
+                    }
+                  >
+                    Markdown + code
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {errorState && (
+              <section className="chat-blank chat-blank--error" role="alert">
+                <p className="chat-blank__eyebrow">Heads up</p>
+                <h2 className="chat-blank__title">{errorState.title}</h2>
+                <p className="chat-blank__copy">{errorState.copy}</p>
+                <button
+                  type="button"
+                  className="retry-btn"
+                  onClick={handleRetry}
+                >
+                  Retry with last message
+                </button>
+              </section>
+            )}
+
+            {messages.map((msg, index) => (
+              <article
+                key={msg.id}
+                className={`bubble bubble--${msg.sender === "ai" ? "ai" : "user"} ${
+                  msg.status === "failed" ? "bubble--failed" : ""
+                } ${
+                  msg.status === "pending" || msg.status === "streaming"
+                    ? "bubble--streaming"
+                    : ""
+                }`}
+              >
+                {msg.sender === "ai" && (
+                  <div className="bubble-avatar" aria-hidden="true">
+                    ?
+                  </div>
+                )}
+
+                <div className="bubble-body">
+                  {editingMessageId === msg.id && msg.sender === "user" ? (
+                    <div className="edit-message-container">
+                      <textarea
+                        className="edit-message-input"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={3}
+                        autoFocus
+                        aria-label="Edit message"
+                      />
+                      <div className="edit-actions">
+                        <button
+                          type="button"
+                          className="edit-action-btn edit-action-btn--primary"
+                          onClick={handleSaveEditMessage}
+                          disabled={!editingText.trim()}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-action-btn"
+                          onClick={handleCancelEditMessage}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                  {msg.sender === "ai" && !msg.text ? (
+                    <TypingIndicator label="Clizel is cooking something ??..." />
+                  ) : msg.sender === "ai" ? (
+                    <MarkdownRenderer content={msg.text} />
+                  ) : (
+                    <p className="bubble-text bubble-text--plain">
+                      {msg.text || "\u00A0"}
+                    </p>
+                  )}
+
+                  {msg.status === "streaming" && (
+                    <span className="bubble-status bubble-status--live">
+                      Clizel is typing it out...
+                    </span>
+                  )}
+
+                  {msg.status === "failed" && (
+                    <span className="bubble-status">Stream interrupted</span>
+                  )}
+
+                  {msg.text && (
+                    <MessageActions
+                      text={msg.text}
+                      sender={msg.sender}
+                      onRetry={
+                        msg.sender === "ai"
+                          ? () => {
+                              const previousUserText =
+                                [...messages.slice(0, index)]
+                                  .reverse()
+                                  .find((message) => message.sender === "user")?.text ?? "";
+
+                              if (previousUserText) {
+                                handleRetryFromText(previousUserText);
+                              }
+                            }
+                          : undefined
+                      }
+                      onBranch={() => handleNewBranchFromText(msg.text)}
+                      onEdit={
+                        msg.sender === "user"
+                          ? () => handleStartEditMessage(msg.id, msg.text)
+                          : undefined
+                      }
+                    />
+                  )}
+                    </>
+                  )}
+                </div>
+
+                {msg.sender === "user" && (
+                  <div className="bubble-avatar" aria-hidden="true">
+                    ??
+                  </div>
+                )}
+              </article>
+            ))}
+
+            <div ref={chatEndRef} />
+          </div>
+        </div>
+
+        <form className="chat-composer" onSubmit={handleSubmit}>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => handleFileSelection(event, "photo")}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.ppt,.pptx"
+            multiple
+            hidden
+            onChange={(event) => handleFileSelection(event, "file")}
+          />
+
+          <div className="composer-shell">
+            <div className="composer-topbar" aria-label="Composer tools">
+              <div className="composer-mode-row">
+                {[
+                  ["search", "Search"],
+                  ["analyze", "Analyze"],
+                  ["create", "Create"],
+                ].map(([tool, label]) => (
+                  <button
+                    key={tool}
+                    type="button"
+                    className={`composer-mode-chip ${
+                      activeTool === tool ? "composer-mode-chip--active" : ""
+                    }`}
+                    onClick={() =>
+                      setActiveTool(tool as "search" | "analyze" | "create")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div
+                className={`composer-status-badge ${
+                  !isOnline || isLagging ? "composer-status-badge--alert" : ""
+                }`}
+              >
+                {composerStatusLabel}
+              </div>
+            </div>
+
+            {shouldShowSocialCarousel && (
+              <SocialScriptCarousel
+                prompt={input}
+                hasAttachmentContext={composerAttachments.length > 0}
+                onCopy={(label) =>
+                  pushToast({
+                    type: "info",
+                    message: `${label} copied ?`,
+                  })
+                }
+              />
+            )}
+
+            {composerAttachments.length > 0 && (
+              <div className="composer-attachments" aria-label="Attached sources">
+                {composerAttachments.map((attachment) => (
+                  <div key={attachment.id} className="composer-attachment-pill">
+                    {attachment.previewUrl && (
+                      <img
+                        src={attachment.previewUrl}
+                        alt={attachment.label}
+                        className="composer-attachment-pill__preview"
+                      />
+                    )}
+                    <span className="composer-attachment-pill__kind">
+                      {attachment.kind}
+                    </span>
+                    <span>{attachment.label}</span>
+                    {attachment.meta && (
+                      <span className="composer-attachment-pill__meta">
+                        {attachment.meta}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="composer-attachment-pill__remove"
+                      onClick={() => handleRemoveComposerAttachment(attachment.id)}
+                      aria-label={`Remove ${attachment.label}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="composer-input-wrap">
+              <div className="composer-leading-tools" ref={composerMenuRef}>
+                <button
+                  type="button"
+                  className={`composer-plus-btn ${
+                    composerMenuOpen ? "composer-plus-btn--active" : ""
+                  }`}
+                  onClick={() => setComposerMenuOpen((current) => !current)}
+                  aria-label="Add sources"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 5v14M5 12h14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.9"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+
+                {composerMenuOpen && (
+                  <div className="composer-menu">
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      Photos
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={handleOpenCamera}
+                    >
+                      Camera
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Files
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => handleAddCloudSource("drive")}
+                    >
+                      Drive
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-menu__item"
+                      onClick={() => handleAddCloudSource("notebook")}
+                    >
+                      Notebook
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <textarea
+                ref={inputRef}
+                id="chat-input"
+                className={`composer-input composer-input--textarea ${
+                  input.trim() ? "composer-input--active" : ""
+                }`}
+                placeholder="Ask anything..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e as unknown as FormEvent);
+                  }
+                }}
+                disabled={isStreaming || showOnboarding}
+                autoComplete="off"
+                autoFocus
+                rows={1}
+                aria-label="Message input"
+              />
+
+              <button
+                type="button"
+                className={`composer-voice-btn ${
+                  isListening ? "composer-voice-btn--active" : ""
+                }`}
+                onClick={handleToggleVoiceInput}
+                disabled={isStreaming || showOnboarding}
+                title={isListening ? "Stop voice input" : "Start voice input"}
+                aria-label={isListening ? "Stop voice input" : "Start voice input"}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 16a4 4 0 0 0 4-4V8a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Zm0 0v3m-5-6a5 5 0 0 0 10 0m-10 0v1a5 5 0 0 0 10 0v-1"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+              <button
+                className="composer-send"
+                type="submit"
+                disabled={isStreaming || showOnboarding || !input.trim()}
+                title="Send message"
+                aria-label="Send message"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </form>
+          </div>
+        </div>
+      </div>
+
