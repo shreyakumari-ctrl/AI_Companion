@@ -1,0 +1,33 @@
+﻿piErr)
+      ) {
+        removeMessage(aiMessageId);
+        setSelectedProvider(DEFAULT_PROVIDER);
+        setProviderMenuOpen(false);
+        setProviderNotice(`${provider} unavailable tha, so Gemini pe switch kar diya.`);
+        pushToast({
+          type: "error",
+          message: "Model not available",
+        });
+        await streamAssistantReply(
+          text,
+          history,
+          attachmentPayload,
+          clearAttachmentsOnSuccess,
+          DEFAULT_PROVIDER,
+        );
+      } else {
+        removeMessage(aiMessageId);
+        setErrorState(resolveErrorState(apiErr));
+        setProviderNotice(
+          provider === DEFAULT_PROVIDER
+            ? "Gemini reply abhi nahi aa paya. Please retry."
+            : `${provider} response nahi de paaya.`,
+        );
+        pushToast({
+          type: "error",
+          message:
+            apiErr.message || "Oops ðŸ˜… Something went wrong. Please try again!",
+        });
+      }
+    } finally {
+      inputRef.curr

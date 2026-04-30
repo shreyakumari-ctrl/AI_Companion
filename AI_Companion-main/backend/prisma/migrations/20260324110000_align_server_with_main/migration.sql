@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS "User" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "name" TEXT,
+  "tonePreference" TEXT NOT NULL DEFAULT 'friendly',
+  "mood" TEXT NOT NULL DEFAULT 'curious',
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS "ChatMessage" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "role" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "provider" TEXT,
+  "userId" TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ChatMessage_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "User" ("id")
+    ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "ChatMessage_userId_idx" ON "ChatMessage"("userId");
