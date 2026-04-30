@@ -108,11 +108,14 @@ const PRESET_THEME_KEY = "clizel_custom_theme_preset";
 const BACKGROUND_EFFECT_KEY = "clizel_background_effect";
 
 const PREMIUM_THEME_PRESETS: Record<string, string[]> = {
-  "Neon Dream": ["#ff00ff", "#00ffff", "#ff00ff"],
-  "Cyberdeck": ["#00ff00", "#003300", "#00ff00"],
-  "Sunset": ["#ff5f6d", "#ffc371", "#ff5f6d"],
-  "Midnight": ["#232526", "#414345", "#232526"],
-  "Orbital": ["#4facfe", "#00f2fe", "#4facfe"]
+  "Elegance": ["#818cf8", "#c084fc", "#f472b6"],
+  "Titanium": ["#94a3b8", "#475569", "#1e293b"],
+  "Obsidian": ["#10b981", "#059669", "#064e3b"],
+  "Aurora": ["#2dd4bf", "#8b5cf6", "#d946ef"],
+  "Slate Pro": ["#cbd5e1", "#64748b", "#1e293b"],
+  "Zinc Luxe": ["#d4d4d8", "#52525b", "#18181b"],
+  "Solar": ["#fbbf24", "#ea580c", "#7c2d12"],
+  "Cyber": ["#22d3ee", "#0891b2", "#155e75"]
 };
 const DEFAULT_PROVIDER: AIProvider = "Gemini";
 const AI_PROVIDERS: AIProvider[] = ["Gemini", "OpenAI", "DeepSeek", "Groq"];
@@ -146,37 +149,37 @@ const VIBE_MOOD_OPTIONS: Array<{
   {
     id: "happy",
     label: "Happy",
-    description: "Warm yellow-orange glow",
-    accent: ["#f59e0b", "#fb7185"],
-    surface: "linear-gradient(135deg, rgba(245, 158, 11, 0.24), rgba(251, 113, 133, 0.12))",
+    description: "Warm golden glow atmosphere",
+    accent: ["#fbbf24", "#f59e0b"],
+    surface: "linear-gradient(135deg, rgba(251, 191, 36, 0.18), rgba(245, 158, 11, 0.08))",
   },
   {
     id: "sad",
     label: "Sad",
-    description: "Soft blue gradient",
-    accent: ["#60a5fa", "#38bdf8"],
-    surface: "linear-gradient(135deg, rgba(96, 165, 250, 0.22), rgba(56, 189, 248, 0.12))",
+    description: "Deep oceanic blue serenity",
+    accent: ["#60a5fa", "#3b82f6"],
+    surface: "linear-gradient(135deg, rgba(96, 165, 250, 0.16), rgba(59, 130, 246, 0.08))",
   },
   {
     id: "angry",
     label: "Angry",
-    description: "Subtle red pulse",
-    accent: ["#ef4444", "#f97316"],
-    surface: "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(249, 115, 22, 0.12))",
+    description: "Crimson intensity pulse",
+    accent: ["#f87171", "#dc2626"],
+    surface: "linear-gradient(135deg, rgba(248, 113, 113, 0.16), rgba(220, 38, 38, 0.1))",
   },
   {
     id: "excited",
     label: "Excited",
-    description: "Neon glow animation",
-    accent: ["#8b5cf6", "#ec4899"],
-    surface: "linear-gradient(135deg, rgba(139, 92, 246, 0.24), rgba(236, 72, 153, 0.14))",
+    description: "Electric cyan and magenta",
+    accent: ["#22d3ee", "#d946ef"],
+    surface: "linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(217, 70, 239, 0.1))",
   },
   {
     id: "tired",
     label: "Tired",
-    description: "Dimmed low-brightness UI",
-    accent: ["#475569", "#0f172a"],
-    surface: "linear-gradient(135deg, rgba(71, 85, 105, 0.24), rgba(15, 23, 42, 0.14))",
+    description: "Dimmed slate minimalism",
+    accent: ["#94a3b8", "#475569"],
+    surface: "linear-gradient(135deg, rgba(148, 163, 184, 0.14), rgba(71, 85, 105, 0.08))",
   },
 ];
 
@@ -3790,189 +3793,252 @@ export default function ChatExperience({
       {themeModalOpen && (
         <div className="support-modal-backdrop is-open" onClick={() => setThemeModalOpen(false)}>
           <div className="support-modal__card theme-modal__fixed-height" onClick={(e) => e.stopPropagation()}>
-            <div className="support-modal__header">
-              <div className="support-modal__header-copy">
-                <strong>Vibe Designer</strong>
-                <p>Personalize your experience with custom colors and motion.</p>
-              </div>
-              <button type="button" className="auth-modal__close" onClick={() => setThemeModalOpen(false)}>×</button>
-            </div>
-
-            <div className="theme-modal__body premium-scroll" style={{ overflowY: 'auto', maxHeight: '70vh' }}>
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Base theme</strong>
-                  <span>Pick the app chrome that feels best before styling the chat itself.</span>
-                </div>
-                <div className="theme-preview-grid theme-preview-grid--base">
-                  {BASE_THEME_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={`theme-preview-card theme-preview-card--base theme-preview-card--${option.id} ${
-                        themeMode === option.id ? "is-active" : ""
-                      }`}
-                      onClick={() => setThemeMode(option.id)}
-                    >
-                      <span className="theme-preview-card__eyebrow">{option.eyebrow}</span>
-                      <div className="theme-preview-card__mockup" aria-hidden="true">
-                        <span className="theme-preview-card__sidebar" />
-                        <span className="theme-preview-card__panel">
-                          <i />
-                          <i />
-                          <i />
-                        </span>
-                      </div>
-                      <div className="theme-preview-card__copy">
-                        <strong>{option.label}</strong>
-                        <small>{option.description}</small>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Chat style</strong>
-                  <span>Select a full interface look, then fine-tune the vibe with mini preview cards below.</span>
-                </div>
-                <div className="theme-preview-grid theme-preview-grid--style">
-                  {VISUAL_THEME_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={`theme-preview-card theme-preview-card--style ${
-                        option.id === "vibe" ? "theme-preview-card--vibe" : "theme-preview-card--default"
-                      } ${visualTheme === option.id ? "is-active" : ""}`}
-                      onClick={() => setVisualTheme(option.id)}
-                    >
-                      <span className="theme-preview-card__badge">{option.badge}</span>
-                      <div className="theme-preview-card__scene" aria-hidden="true">
-                        <span className="theme-preview-card__scene-nav" />
-                        <span className="theme-preview-card__scene-main">
-                          <i className="theme-preview-card__bubble theme-preview-card__bubble--ai" />
-                          <i className="theme-preview-card__bubble theme-preview-card__bubble--user" />
-                          <i className="theme-preview-card__composer" />
-                        </span>
-                      </div>
-                      <div className="theme-preview-card__copy">
-                        <strong>{option.label}</strong>
-                        <small>{option.description}</small>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Vibe presets</strong>
-                  <span>Small preview cards let the user see how each mood shifts the interface before choosing it.</span>
-                </div>
-                <div className={`theme-mood-grid ${visualTheme !== "vibe" ? "is-disabled" : ""}`}>
-                  {VIBE_MOOD_OPTIONS.map((mood) => (
-                    <button
-                      key={mood.id}
-                      type="button"
-                      className={`theme-mood-chip ${vibeMood === mood.id ? "is-active" : ""}`}
-                      onClick={() => {
-                        setVisualTheme("vibe");
-                        setVibeMood(mood.id);
-                      }}
-                      style={
-                        {
-                          "--theme-mood-surface": mood.surface,
-                          "--theme-mood-accent-a": mood.accent[0],
-                          "--theme-mood-accent-b": mood.accent[1],
-                        } as CSSProperties
-                      }
-                    >
-                      <div className="theme-mood-chip__preview" aria-hidden="true">
-                        <span className="theme-mood-chip__spark" />
-                        <span className="theme-mood-chip__layout">
-                          <i />
-                          <i />
-                          <i />
-                        </span>
-                      </div>
-                      <span>{mood.label}</span>
-                      <small>{mood.description}</small>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="theme-modal__section">
-                <div className="theme-modal__section-copy">
-                  <strong>Custom Polish</strong>
-                  <span>Exclusive presets and premium colors for Vibe Mode.</span>
-                </div>
-                {!isPremiumUser ? (
-                  <div className="upgrade-teaser-card">
-                    <div className="upgrade-teaser-card__content">
-                      <strong>Nitro Theme Upgrade</strong>
-                      <p>Unlock custom gradients, orbital glow, and animated waves.</p>
-                    </div>
-                    <button type="button" className="upgrade-teaser-card__btn" onClick={() => setIsPremiumUser(true)}>Unlock now</button>
+            <div className="theme-designer-shell">
+              <aside className="theme-designer-sidebar">
+                <div className="theme-designer-profile">
+                  <div className="theme-designer-profile__avatar">
+                    {userProfile.avatarDataUrl ? (
+                      <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                    ) : (
+                      <span>{profileInitial}</span>
+                    )}
                   </div>
-                ) : (
-                  <div className="premium-builder-grid">
-                    <div className="premium-presets-row">
-                      {Object.keys(PREMIUM_THEME_PRESETS).map((preset) => (
+                  <div className="theme-designer-profile__copy">
+                    <strong>{profileDisplayName}</strong>
+                    <span>{userProfile.userPlan ?? "Free plan"}</span>
+                  </div>
+                </div>
+
+                <div className="theme-designer-sidebar__group">
+                  <p className="theme-designer-sidebar__label">Appearance</p>
+                  <button type="button" className="theme-designer-sidebar__item is-active">
+                    <span>Theme</span>
+                    <small>Compact boxed layout</small>
+                  </button>
+                  <button type="button" className="theme-designer-sidebar__item">
+                    <span>Chat style</span>
+                    <small>{visualTheme === "vibe" ? "Immersive glow" : "Clean default"}</small>
+                  </button>
+                  <button type="button" className="theme-designer-sidebar__item">
+                    <span>Color presets</span>
+                    <small>{VIBE_MOOD_OPTIONS.find((mood) => mood.id === vibeMood)?.label ?? "Happy"}</small>
+                  </button>
+                </div>
+
+                <div className="theme-designer-sidebar__promo">
+                  <span className="theme-designer-sidebar__promo-tag">Live Theme</span>
+                  <strong>
+                    {themeMode === "dark" ? "Night Studio" : "Soft Daylight"} + {" "}
+                    {visualTheme === "vibe" ? "Vibe Mode" : "Clean Default"}
+                  </strong>
+                  <p>Discord-inspired small cards, softer borders, and a smoother panel vibe.</p>
+                </div>
+              </aside>
+
+              <div className="theme-designer-main">
+                <div className="theme-modal__header theme-modal__header--designer">
+                  <div className="theme-modal__title-wrap">
+                    <div className="theme-modal__title-badge">Vibe Designer Pro</div>
+                    <div className="theme-modal__header-copy">
+                      <strong>Build your perfect premium workspace</strong>
+                      <p>Sophisticated dark surfaces, sharp accents, and smooth cinematic transitions.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="auth-modal__close" onClick={() => setThemeModalOpen(false)}>×</button>
+                </div>
+
+                <div className="theme-modal__body premium-scroll">
+                  <section className="theme-modal__section">
+                    <div className="theme-modal__section-copy">
+                      <strong>Base theme</strong>
+                      <span>Choose the overall shell first. Each option keeps the compact Discord-like boxed layout.</span>
+                    </div>
+                    <div className="theme-preview-grid theme-preview-grid--base">
+                      {BASE_THEME_OPTIONS.map((option) => (
                         <button
-                          key={preset}
+                          key={option.id}
                           type="button"
-                          className={`premium-preset-chip ${customThemePreset === preset ? 'is-active' : ''}`}
-                          onClick={() => {
-                            setCustomThemePreset(preset);
-                            setCustomThemeColors(PREMIUM_THEME_PRESETS[preset]);
-                          }}
+                          className={`theme-preview-card theme-preview-card--base theme-preview-card--${option.id} ${
+                            themeMode === option.id ? "is-active" : ""
+                          }`}
+                          onClick={() => setThemeMode(option.id)}
                         >
-                          {preset}
+                          <div className="theme-preview-card__topline">
+                            <span className="theme-preview-card__eyebrow">{option.eyebrow}</span>
+                            <span className="theme-preview-card__check">{themeMode === option.id ? "Selected" : "Pick"}</span>
+                          </div>
+                          <div className="theme-preview-card__mockup" aria-hidden="true">
+                            <span className="theme-preview-card__sidebar" />
+                            <span className="theme-preview-card__panel">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          </div>
+                          <div className="theme-preview-card__swatches" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                            <i />
+                          </div>
+                          <div className="theme-preview-card__copy">
+                            <strong>{option.label}</strong>
+                            <small>{option.description}</small>
+                          </div>
                         </button>
                       ))}
                     </div>
-                    
-                    <div className="premium-controls-grid">
-                      <div className="premium-control-item">
-                        <label>Primary Glow</label>
-                        <input 
-                          type="color" 
-                          value={customThemeColors[0]} 
-                          onChange={(e) => setCustomThemeColors([e.target.value, customThemeColors[1], customThemeColors[2]])}
-                        />
-                      </div>
-                      <div className="premium-control-item">
-                        <label>Secondary</label>
-                        <input 
-                          type="color" 
-                          value={customThemeColors[1]} 
-                          onChange={(e) => setCustomThemeColors([customThemeColors[0], e.target.value, customThemeColors[2]])}
-                        />
-                      </div>
-                      <div className="premium-control-item">
-                        <label>Atmosphere</label>
-                        <select 
-                          value={backgroundEffect} 
-                          onChange={(e) => setBackgroundEffect(e.target.value as BackgroundEffect)}
-                          className="premium-select"
-                        >
-                          <option value="none">None</option>
-                          <option value="glow">Orbital Glow</option>
-                          <option value="sparkles">Starfield Sparkles</option>
-                          <option value="waves">Kinetic Waves</option>
-                        </select>
-                      </div>
+                  </section>
+
+                  <section className="theme-modal__section">
+                    <div className="theme-modal__section-copy">
+                      <strong>Chat style</strong>
+                      <span>Keep it clean or turn on the richer vibe layer with glow, depth, and premium motion.</span>
                     </div>
-                  </div>
-                )}
-              </section>
+                    <div className="theme-preview-grid theme-preview-grid--style">
+                      {VISUAL_THEME_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`theme-preview-card theme-preview-card--style ${
+                            option.id === "vibe" ? "theme-preview-card--vibe" : "theme-preview-card--default"
+                          } ${visualTheme === option.id ? "is-active" : ""}`}
+                          onClick={() => setVisualTheme(option.id)}
+                        >
+                          <div className="theme-preview-card__topline">
+                            <span className="theme-preview-card__badge">{option.badge}</span>
+                            <span className="theme-preview-card__check">
+                              {visualTheme === option.id ? "Selected" : "Preview"}
+                            </span>
+                          </div>
+                          <div className="theme-preview-card__scene" aria-hidden="true">
+                            <span className="theme-preview-card__scene-nav" />
+                            <span className="theme-preview-card__scene-main">
+                              <i className="theme-preview-card__bubble theme-preview-card__bubble--ai" />
+                              <i className="theme-preview-card__bubble theme-preview-card__bubble--user" />
+                              <i className="theme-preview-card__composer" />
+                            </span>
+                          </div>
+                          <div className="theme-preview-card__copy">
+                            <strong>{option.label}</strong>
+                            <small>{option.description}</small>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="theme-modal__section">
+                    <div className="theme-modal__section-copy">
+                      <strong>Vibe presets</strong>
+                      <span>Small color boxes for quick mood switching. These auto-enable Vibe Mode when you tap one.</span>
+                    </div>
+                    <div className={`theme-mood-grid ${visualTheme !== "vibe" ? "is-disabled" : ""}`}>
+                      {VIBE_MOOD_OPTIONS.map((mood) => (
+                        <button
+                          key={mood.id}
+                          type="button"
+                          className={`theme-mood-chip ${vibeMood === mood.id ? "is-active" : ""}`}
+                          onClick={() => {
+                            setVisualTheme("vibe");
+                            setVibeMood(mood.id);
+                          }}
+                          style={
+                            {
+                              "--theme-mood-surface": mood.surface,
+                              "--theme-mood-accent-a": mood.accent[0],
+                              "--theme-mood-accent-b": mood.accent[1],
+                            } as CSSProperties
+                          }
+                        >
+                          <div className="theme-mood-chip__preview" aria-hidden="true">
+                            <span className="theme-mood-chip__spark" />
+                            <span className="theme-mood-chip__layout">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          </div>
+                          <div className="theme-mood-chip__meta">
+                            <span>{mood.label}</span>
+                            <small>{mood.description}</small>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="theme-modal__section">
+                    <div className="theme-modal__section-copy">
+                      <strong>Custom Polish</strong>
+                      <span>Exclusive presets and high-performance color tokens for the ultimate premium feel.</span>
+                    </div>
+                    {!isPremiumUser ? (
+                      <div className="upgrade-teaser-card">
+                        <div className="upgrade-teaser-card__content">
+                          <strong>Nitro Theme Upgrade</strong>
+                          <p>Unlock custom gradients, orbital glow, and animated waves.</p>
+                        </div>
+                        <button type="button" className="upgrade-teaser-card__btn" onClick={() => setIsPremiumUser(true)}>Unlock now</button>
+                      </div>
+                    ) : (
+                      <div className="premium-builder-grid">
+                        <div className="premium-presets-row">
+                          {Object.keys(PREMIUM_THEME_PRESETS).map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              className={`premium-preset-chip ${customThemePreset === preset ? "is-active" : ""}`}
+                              onClick={() => {
+                                setCustomThemePreset(preset);
+                                setCustomThemeColors(PREMIUM_THEME_PRESETS[preset]);
+                              }}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="premium-controls-grid">
+                          <div className="premium-control-item">
+                            <label>Primary Glow</label>
+                            <input
+                              type="color"
+                              value={customThemeColors[0]}
+                              onChange={(e) => setCustomThemeColors([e.target.value, customThemeColors[1], customThemeColors[2]])}
+                            />
+                          </div>
+                          <div className="premium-control-item">
+                            <label>Secondary</label>
+                            <input
+                              type="color"
+                              value={customThemeColors[1]}
+                              onChange={(e) => setCustomThemeColors([customThemeColors[0], e.target.value, customThemeColors[2]])}
+                            />
+                          </div>
+                          <div className="premium-control-item">
+                            <label>Atmosphere</label>
+                            <select
+                              value={backgroundEffect}
+                              onChange={(e) => setBackgroundEffect(e.target.value as BackgroundEffect)}
+                              className="premium-select"
+                            >
+                              <option value="none">None</option>
+                              <option value="glow">Orbital Glow</option>
+                              <option value="sparkles">Starfield Sparkles</option>
+                              <option value="waves">Kinetic Waves</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
-
       <ToastContainer />
     </div>
   );
