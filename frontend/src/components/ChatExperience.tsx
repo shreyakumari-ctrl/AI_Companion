@@ -1,4 +1,5 @@
 "use client";
+// Version: 1.0.1 - Force refresh after streaming cleanup
 
 import { type CSSProperties, ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -39,6 +40,7 @@ import PremiumEffects from "./chat-ui/PremiumEffects";
 
 type VisualTheme = "default" | "vibe";
 type BackgroundEffect = "none" | "glow" | "sparkles" | "waves";
+type ThemeDesignerSection = "theme" | "style" | "mood" | "premium";
 
 type AttachmentKind = "photo" | "camera" | "file" | "drive" | "notebook";
 
@@ -106,6 +108,7 @@ const HEADER_UPGRADE_DISMISSED_KEY = "clizel-header-upgrade-dismissed";
 const CUSTOM_THEME_COLORS_KEY = "clizel_custom_theme_colors";
 const PRESET_THEME_KEY = "clizel_custom_theme_preset";
 const BACKGROUND_EFFECT_KEY = "clizel_background_effect";
+const DEFAULT_PREMIUM_THEME_PRESET = "Elegance";
 
 const PREMIUM_THEME_PRESETS: Record<string, string[]> = {
   "Elegance": ["#818cf8", "#c084fc", "#f472b6"],
@@ -192,13 +195,13 @@ const BASE_THEME_OPTIONS: Array<{
   {
     id: "dark",
     label: "Night Studio",
-    description: "High contrast panels with a focused late-night feel.",
+    description: "Deep contrast, calm focus.",
     eyebrow: "Recommended",
   },
   {
     id: "light",
     label: "Soft Daylight",
-    description: "Airy workspace with brighter cards and softer shadows.",
+    description: "Bright cards, soft shadows.",
     eyebrow: "Clean",
   },
 ];
@@ -212,16 +215,64 @@ const VISUAL_THEME_OPTIONS: Array<{
   {
     id: "default",
     label: "Clean Default",
-    description: "Balanced chat UI with subtle depth and minimal motion.",
+    description: "Minimal, tidy, distraction-free.",
     badge: "Classic",
   },
   {
     id: "vibe",
     label: "Vibe Mode",
-    description: "Discord-style glow, animated atmosphere, and richer mood presets.",
+    description: "Glow, depth, and richer mood.",
     badge: "Immersive",
   },
 ];
+
+const THEME_DESIGNER_SECTIONS: Array<{
+  id: ThemeDesignerSection;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "theme",
+    label: "Theme",
+    description: "Compact boxed layout",
+  },
+  {
+    id: "style",
+    label: "Chat style",
+    description: "Glow depth or clean default",
+  },
+  {
+    id: "mood",
+    label: "Color presets",
+    description: "Mood-driven accents",
+  },
+  {
+    id: "premium",
+    label: "Custom polish",
+    description: "Premium colors and effects",
+  },
+];
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "").trim();
+  const safeHex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => `${char}${char}`)
+          .join("")
+      : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(safeHex)) {
+    return `rgba(99, 102, 241, ${alpha})`;
+  }
+
+  const red = Number.parseInt(safeHex.slice(0, 2), 16);
+  const green = Number.parseInt(safeHex.slice(2, 4), 16);
+  const blue = Number.parseInt(safeHex.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
 
 const personalityPromptMap: Record<
   PersonalityPreset,
@@ -279,33 +330,6 @@ function buildSocialActionPrompt(action: "fix" | "explain", sourceText: string) 
   return `Please explain this reply in simple words, highlight what it means, and point out the main takeaway:\n\n${sourceText}`;
 }
 
-function formatLongAssistantReply(text: string) {
-  const trimmed = text.trim();
-
-  if (
-    trimmed.length < 360 ||
-    /(^|\n)\s*[-*•]/.test(trimmed) ||
-    trimmed.includes("```")
-  ) {
-    return trimmed;
-  }
-
-  const sentences = trimmed
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .filter(Boolean);
-
-  if (sentences.length < 3) {
-    return trimmed;
-  }
-
-  const bullets = sentences.slice(0, 3).map((sentence) => `- ${sentence.trim()}`);
-  const funLine = sentences[3]?.trim()
-    ? `\nMeme line: ${sentences[3].trim()}`
-    : "\nMeme line: main character energy, but with a better plan.";
-
-  return `${bullets.join("\n")}${funLine}`;
-}
 
 function isBackendFallbackReply(text: string) {
   return text.trim().startsWith("Clizel fallback reply:");
@@ -629,50 +653,6 @@ function EyeOffIcon() {
   );
 }
 
-function takeNextDisplayToken(buffer: string, force = false) {
-  if (!buffer) {
-    return "";
-  }
-
-  if (buffer.startsWith("\n")) {
-    return "\n";
-  }
-
-  const leadingWhitespace = buffer.match(/^[ \t]+/);
-  if (leadingWhitespace) {
-    return leadingWhitespace[0];
-  }
-
-  const wordWithBoundary = buffer.match(/^[^\s]+(?:\s+|$)/);
-  if (wordWithBoundary) {
-    const token = wordWithBoundary[0];
-    if (/\s$/.test(token) || /[.,!?;:)\]]$/.test(token) || force) {
-      return token;
-    }
-  }
-
-  if (buffer.length >= 12) {
-    return buffer.slice(0, Math.min(4, buffer.length));
-  }
-
-  return force ? buffer : "";
-}
-
-function getStreamDelay(token: string) {
-  if (!token.trim()) {
-    return 12;
-  }
-
-  if (token.includes("\n")) {
-    return 44;
-  }
-
-  if (/[.,!?]$/.test(token.trim())) {
-    return 54;
-  }
-
-  return Math.min(42, Math.max(18, token.length * 6));
-}
 
 function createComposerAttachment(
   label: string,
@@ -757,6 +737,8 @@ export default function ChatExperience({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [profileUpdateModalOpen, setProfileUpdateModalOpen] = useState(false);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
+  const [activeThemeDesignerSection, setActiveThemeDesignerSection] =
+    useState<ThemeDesignerSection>("theme");
   const [supportModalOpen, setSupportModalOpen] = useState(false);
   const [supportView, setSupportView] = useState<SupportView>("help");
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
@@ -766,8 +748,12 @@ export default function ChatExperience({
 
   // Premium Theme States
   const [isPremiumUser, setIsPremiumUser] = useState(false);
-  const [customThemeColors, setCustomThemeColors] = useState<string[]>(["#6366f1", "#a855f7", "#6366f1"]);
-  const [customThemePreset, setCustomThemePreset] = useState("Default");
+  const [customThemeColors, setCustomThemeColors] = useState<string[]>([
+    ...PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET],
+  ]);
+  const [customThemePreset, setCustomThemePreset] = useState(
+    DEFAULT_PREMIUM_THEME_PRESET,
+  );
   const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffect>("none");
   const [savedConversations, setSavedConversations] = useState<ConversationSummary[]>([]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
@@ -787,12 +773,14 @@ export default function ChatExperience({
   } | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
-  const streamBufferRef = useRef("");
-  const streamTimerRef = useRef<number | null>(null);
-  const streamFinishedRef = useRef(false);
-  const streamMessageIdRef = useRef<string | null>(null);
-  const streamDrainResolverRef = useRef<(() => void) | null>(null);
   const lastChunkAtRef = useRef(0);
+  const themeDesignerBodyRef = useRef<HTMLDivElement>(null);
+  const themeDesignerSectionRefs = useRef<Record<ThemeDesignerSection, HTMLElement | null>>({
+    theme: null,
+    style: null,
+    mood: null,
+    premium: null,
+  });
 
   const isImmersive = variant === "immersive";
   const personality = userProfile.personality as PersonalityPreset;
@@ -833,11 +821,22 @@ export default function ChatExperience({
     const sEff = window.localStorage.getItem(BACKGROUND_EFFECT_KEY);
 
     if (sCol) {
-      try { setCustomThemeColors(JSON.parse(sCol)); } catch (e) {}
+      try {
+        const parsed = JSON.parse(sCol);
+        if (Array.isArray(parsed) && parsed.length >= 3) {
+          setCustomThemeColors(parsed.slice(0, 3));
+        }
+      } catch (error) {}
     }
-    if (sPre) setCustomThemePreset(sPre);
+    if (sPre) {
+      setCustomThemePreset(
+        Object.prototype.hasOwnProperty.call(PREMIUM_THEME_PRESETS, sPre)
+          ? sPre
+          : "Custom Mix",
+      );
+    }
     if (sEff) setBackgroundEffect(sEff as BackgroundEffect);
-    if (sCol || sPre) setIsPremiumUser(true);
+    if (sCol || sPre || sEff) setIsPremiumUser(true);
   }, []);
 
   useEffect(() => {
@@ -864,32 +863,56 @@ export default function ChatExperience({
   useEffect(() => {
     if (typeof document === "undefined") return;
 
+    const [primary, secondary, accent] = [
+      customThemeColors[0] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][0],
+      customThemeColors[1] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][1],
+      customThemeColors[2] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][2],
+    ];
+
+    window.localStorage.setItem(
+      CUSTOM_THEME_COLORS_KEY,
+      JSON.stringify([primary, secondary, accent]),
+    );
+    window.localStorage.setItem(PRESET_THEME_KEY, customThemePreset);
+    window.localStorage.setItem(BACKGROUND_EFFECT_KEY, backgroundEffect);
+
     if (visualTheme === "vibe" && customThemeColors.length >= 2) {
-      const gradient = `linear-gradient(135deg, ${customThemeColors[0]}, ${customThemeColors[1]})`;
+      const gradient = `linear-gradient(135deg, ${primary}, ${secondary})`;
       document.documentElement.style.setProperty("--primary-gradient", gradient);
-      document.documentElement.style.setProperty("--accent-primary", customThemeColors[0]);
-      document.documentElement.style.setProperty("--bubble-user", customThemeColors[0]);
-      
-      // Save to localStorage
-      window.localStorage.setItem(CUSTOM_THEME_COLORS_KEY, JSON.stringify(customThemeColors));
-      window.localStorage.setItem(PRESET_THEME_KEY, customThemePreset);
-      window.localStorage.setItem(BACKGROUND_EFFECT_KEY, backgroundEffect);
+      document.documentElement.style.setProperty("--accent-primary", primary);
+      document.documentElement.style.setProperty("--bubble-user", gradient);
+      document.documentElement.style.setProperty("--purple", primary);
+      document.documentElement.style.setProperty("--purple-mid", secondary);
+      document.documentElement.style.setProperty("--border", hexToRgba(accent, 0.18));
+      document.documentElement.style.setProperty("--shadow-glow", `0 0 34px ${hexToRgba(primary, 0.28)}`);
     } else {
       document.documentElement.style.removeProperty("--primary-gradient");
       document.documentElement.style.removeProperty("--accent-primary");
       document.documentElement.style.removeProperty("--bubble-user");
+      document.documentElement.style.removeProperty("--purple");
+      document.documentElement.style.removeProperty("--purple-mid");
+      document.documentElement.style.removeProperty("--border");
+      document.documentElement.style.removeProperty("--shadow-glow");
     }
-    
+
     window.localStorage.setItem(VISUAL_THEME_STORAGE_KEY, visualTheme);
   }, [customThemeColors, customThemePreset, visualTheme, backgroundEffect]);
 
   useEffect(() => {
-
     document.documentElement.setAttribute("data-chat-visual-theme", visualTheme);
     document.documentElement.setAttribute("data-chat-vibe-mood", vibeMood);
     window.localStorage.setItem(VISUAL_THEME_STORAGE_KEY, visualTheme);
     window.localStorage.setItem(VIBE_MOOD_STORAGE_KEY, vibeMood);
   }, [visualTheme, vibeMood]);
+
+  useEffect(() => {
+    if (!themeModalOpen) {
+      return;
+    }
+
+    setActiveThemeDesignerSection("theme");
+    themeDesignerBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [themeModalOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1030,13 +1053,6 @@ export default function ChatExperience({
     });
   }, [addMessage, hasHydrated, messages.length, personality, showOnboarding]);
 
-  useEffect(() => {
-    return () => {
-      if (streamTimerRef.current !== null) {
-        window.clearTimeout(streamTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const textarea = inputRef.current;
@@ -1144,88 +1160,6 @@ export default function ChatExperience({
     };
   }
 
-  function settleQueuedStream() {
-    if (streamTimerRef.current !== null) {
-      window.clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-
-    streamBufferRef.current = "";
-    streamFinishedRef.current = false;
-    streamMessageIdRef.current = null;
-    streamDrainResolverRef.current?.();
-    streamDrainResolverRef.current = null;
-  }
-
-  function drainQueuedStream() {
-    const messageId = streamMessageIdRef.current;
-
-    if (!messageId) {
-      settleQueuedStream();
-      return;
-    }
-
-    const nextToken = takeNextDisplayToken(
-      streamBufferRef.current,
-      streamFinishedRef.current,
-    );
-
-    if (!nextToken) {
-      if (streamFinishedRef.current && !streamBufferRef.current) {
-        settleQueuedStream();
-        return;
-      }
-
-      streamTimerRef.current = window.setTimeout(drainQueuedStream, 16);
-      return;
-    }
-
-    streamBufferRef.current = streamBufferRef.current.slice(nextToken.length);
-    appendChunk(messageId, nextToken);
-
-    if (!streamBufferRef.current && streamFinishedRef.current) {
-      settleQueuedStream();
-      return;
-    }
-
-    streamTimerRef.current = window.setTimeout(
-      drainQueuedStream,
-      getStreamDelay(nextToken),
-    );
-  }
-
-  function queueSmoothChunk(messageId: string, chunk: string) {
-    streamMessageIdRef.current = messageId;
-    streamBufferRef.current += chunk;
-
-    if (streamTimerRef.current === null) {
-      drainQueuedStream();
-    }
-  }
-
-  function finishSmoothStream(messageId: string) {
-    streamMessageIdRef.current = messageId;
-    streamFinishedRef.current = true;
-
-    if (streamTimerRef.current === null) {
-      drainQueuedStream();
-    }
-
-    return new Promise<void>((resolve) => {
-      if (!streamBufferRef.current && streamTimerRef.current === null) {
-        settleQueuedStream();
-        resolve();
-        return;
-      }
-
-      streamDrainResolverRef.current = resolve;
-    });
-  }
-
-  function cancelSmoothStream() {
-    settleQueuedStream();
-  }
-
   function addComposerAttachments(next: ComposerAttachment[]) {
     setComposerAttachments((current) => [...current, ...next]);
   }
@@ -1326,7 +1260,7 @@ export default function ChatExperience({
       setCameraState("error");
       pushToast({
         type: "error",
-        message: "Camera open nahi ho paya. Permission allow karke phir try karo.",
+        message: "Could not open camera. Please check permissions and try again.",
       });
     }
   }
@@ -1356,7 +1290,7 @@ export default function ChatExperience({
     if (!context) {
       pushToast({
         type: "error",
-        message: "Camera frame capture initialize nahi ho paya.",
+        message: "Failed to initialize camera frame capture.",
       });
       return;
     }
@@ -1536,7 +1470,7 @@ export default function ChatExperience({
       console.error("Conversation load failed:", error);
       pushToast({
         type: "error",
-        message: "Saved chat load nahi ho paya. Please try again.",
+        message: "Could not load saved chat. Please try again.",
       });
     } finally {
       setLoadingConversationId((current) =>
@@ -1555,7 +1489,7 @@ export default function ChatExperience({
     if (!BACKEND_READY_PROVIDERS.includes(provider)) {
       setSelectedProvider(DEFAULT_PROVIDER);
       setProviderMenuOpen(false);
-      setProviderNotice(`${provider} abhi available nahi hai. Switched to Gemini.`);
+      setProviderNotice(`${provider} is not available right now. Switched to Gemini.`);
       pushToast({
         type: "error",
         message: "Model not available",
@@ -1594,7 +1528,7 @@ export default function ChatExperience({
         (chunk) => {
           lastChunkAtRef.current = performance.now();
           setIsLagging(false);
-          queueSmoothChunk(aiMessageId, chunk);
+          appendChunk(aiMessageId, chunk);
         },
         attachmentPayload,
         activeTool,
@@ -1605,17 +1539,17 @@ export default function ChatExperience({
         conversationId,
       );
 
-      await finishSmoothStream(aiMessageId);
 
       if (streamMeta?.conversationId) {
         setConversationId(streamMeta.conversationId);
       }
 
-      if (streamMeta || streamBufferRef.current || streamMessageIdRef.current === null) {
-        const currentMessage = useChatStore
-          .getState()
-          .messages.find((message) => message.id === aiMessageId);
+      const currentMessage = useChatStore
+        .getState()
+        .messages.find((message) => message.id === aiMessageId);
+      const hasContent = !!currentMessage?.text;
 
+      if (streamMeta || hasContent) {
         const receivedFallbackReply =
           streamMeta?.provider === "fallback" ||
           isBackendFallbackReply(currentMessage?.text ?? "");
@@ -1625,8 +1559,8 @@ export default function ChatExperience({
           setErrorState(resolveErrorState(buildFallbackApiError(provider)));
           setProviderNotice(
             provider === DEFAULT_PROVIDER
-              ? "Gemini abhi unavailable hai. Thoda baad retry karo."
-              : `${provider} unavailable tha, so Gemini pe switch kar diya.`,
+              ? "Gemini is currently unavailable. Please try again in a few moments."
+              : `${provider} was unavailable, so we've switched you to Gemini for now.`,
           );
           pushToast({
             type: "error",
@@ -1646,7 +1580,6 @@ export default function ChatExperience({
 
         if (currentMessage?.text) {
           setProviderNotice(null);
-          updateMessage(aiMessageId, formatLongAssistantReply(currentMessage.text));
         }
 
         markComplete(aiMessageId);
@@ -1668,14 +1601,9 @@ export default function ChatExperience({
         .messages.find((message) => message.id === aiMessageId);
       const hasPartialText = !!partialMessage?.text.trim();
 
-      cancelSmoothStream();
       setIsLagging(false);
 
       if (hasPartialText) {
-        updateMessage(
-          aiMessageId,
-          formatLongAssistantReply(partialMessage?.text ?? ""),
-        );
         markComplete(aiMessageId);
         pushToast({
           type: "info",
@@ -1705,8 +1633,8 @@ export default function ChatExperience({
         setErrorState(resolveErrorState(apiErr));
         setProviderNotice(
           provider === DEFAULT_PROVIDER
-            ? "Gemini reply abhi nahi aa paya. Please retry."
-            : `${provider} response nahi de paaya.`,
+            ? "Gemini couldn't respond right now. Please retry."
+            : `${provider} failed to respond.`,
         );
         pushToast({
           type: "error",
@@ -2032,6 +1960,92 @@ export default function ChatExperience({
     });
   }
 
+  function scrollThemeDesignerSection(section: ThemeDesignerSection) {
+    setActiveThemeDesignerSection(section);
+    const node = themeDesignerSectionRefs.current[section];
+
+    if (!node) {
+      return;
+    }
+
+    node.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  function handleThemeDesignerScroll() {
+    const container = themeDesignerBodyRef.current;
+    if (!container) {
+      return;
+    }
+
+    let closestSection = activeThemeDesignerSection;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (const section of THEME_DESIGNER_SECTIONS) {
+      const node = themeDesignerSectionRefs.current[section.id];
+      if (!node) {
+        continue;
+      }
+
+      const distance = Math.abs(node.offsetTop - container.scrollTop - 16);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestSection = section.id;
+      }
+    }
+
+    if (closestSection !== activeThemeDesignerSection) {
+      setActiveThemeDesignerSection(closestSection);
+    }
+  }
+
+  function updateCustomThemeColor(index: number, value: string) {
+    setIsPremiumUser(true);
+    setActiveThemeDesignerSection("premium");
+    setVisualTheme("vibe");
+    setCustomThemePreset("Custom Mix");
+    setCustomThemeColors((currentColors) => {
+      const nextColors = [
+        currentColors[0] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][0],
+        currentColors[1] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][1],
+        currentColors[2] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][2],
+      ];
+
+      nextColors[index] = value;
+      return nextColors;
+    });
+  }
+
+  function applyPremiumPreset(preset: string) {
+    const nextColors = PREMIUM_THEME_PRESETS[preset];
+    if (!nextColors) {
+      return;
+    }
+
+    setIsPremiumUser(true);
+    setActiveThemeDesignerSection("premium");
+    setVisualTheme("vibe");
+    setCustomThemePreset(preset);
+    setCustomThemeColors([...nextColors]);
+  }
+
+  function handlePremiumEffectChange(nextEffect: BackgroundEffect) {
+    setIsPremiumUser(true);
+    setActiveThemeDesignerSection("premium");
+    setVisualTheme("vibe");
+    setBackgroundEffect(nextEffect);
+  }
+
+  function resetPremiumTheme() {
+    setVisualTheme("default");
+    setVibeMood("excited");
+    setCustomThemePreset(DEFAULT_PREMIUM_THEME_PRESET);
+    setCustomThemeColors([...PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET]]);
+    setBackgroundEffect("none");
+  }
+
   function handleGoHome() {
     setPanelOpen(false);
     router.push("/");
@@ -2260,6 +2274,14 @@ export default function ChatExperience({
     authUser?.email ||
     "You";
   const profileInitial = profileDisplayName.trim().charAt(0).toUpperCase() || "Y";
+  const premiumPalette = [
+    customThemeColors[0] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][0],
+    customThemeColors[1] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][1],
+    customThemeColors[2] ?? PREMIUM_THEME_PRESETS[DEFAULT_PREMIUM_THEME_PRESET][2],
+  ];
+  const premiumPaletteGradient = `linear-gradient(135deg, ${premiumPalette[0]}, ${premiumPalette[1]}, ${premiumPalette[2]})`;
+  const activeMoodMeta =
+    VIBE_MOOD_OPTIONS.find((mood) => mood.id === vibeMood) ?? VIBE_MOOD_OPTIONS[0];
 
   return (
     <div
@@ -3033,18 +3055,16 @@ export default function ChatExperience({
                   (msg.status === "pending" || msg.status === "streaming") ? (
                     <TypingIndicator label="Clizel is cooking..." />
                   ) : msg.sender === "ai" ? (
-                    <MarkdownRenderer content={msg.text} />
+                    <div className="ai-markdown-wrap">
+                      <MarkdownRenderer content={msg.text} />
+                    </div>
                   ) : (
                     <p className="bubble-text bubble-text--plain">
                       {msg.text || "\u00A0"}
                     </p>
                   )}
 
-                  {msg.status === "streaming" && (
-                    <span className="bubble-status bubble-status--live">
-                      Clizel is typing it out...
-                    </span>
-                  )}
+                  
 
                   {msg.status === "failed" && (
                     <span className="bubble-status">Stream interrupted</span>
@@ -3410,8 +3430,407 @@ export default function ChatExperience({
             </div>
           </div>
         </form>
+
+        {themeModalOpen && (
+          <div className="theme-designer-overlay is-open" onClick={() => setThemeModalOpen(false)}>
+            <div className="theme-designer-container" onClick={(e) => e.stopPropagation()}>
+              <div className="theme-designer-shell">
+                <aside className="theme-designer-sidebar">
+                  <div className="theme-designer-profile">
+                    <div className="theme-designer-profile__avatar">
+                      {userProfile.avatarDataUrl ? (
+                        <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
+                      ) : (
+                        <span>{profileInitial}</span>
+                      )}
+                    </div>
+                    <div className="theme-designer-profile__copy">
+                      <strong>{profileDisplayName}</strong>
+                      <span>{userProfile.userPlan ?? "Free plan"}</span>
+                    </div>
+                  </div>
+
+                  <div className="theme-designer-sidebar__group">
+                    <p className="theme-designer-sidebar__label">Appearance</p>
+                    {THEME_DESIGNER_SECTIONS.map((section) => (
+                      <button
+                        key={section.id}
+                        type="button"
+                        className={`theme-designer-sidebar__item ${
+                          activeThemeDesignerSection === section.id ? "is-active" : ""
+                        }`}
+                        onClick={() => scrollThemeDesignerSection(section.id)}
+                        aria-pressed={activeThemeDesignerSection === section.id}
+                      >
+                        <span>{section.label}</span>
+                        <small>
+                          {section.id === "style"
+                            ? visualTheme === "vibe"
+                              ? "Immersive glow active"
+                              : "Clean default active"
+                            : section.id === "mood"
+                              ? VIBE_MOOD_OPTIONS.find((mood) => mood.id === vibeMood)?.label ?? section.description
+                              : section.id === "premium"
+                                ? isPremiumUser
+                                  ? `${customThemePreset} + ${backgroundEffect}`
+                                  : "Unlock custom effects"
+                                : section.description}
+                        </small>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="theme-designer-sidebar__promo">
+                    <span className="theme-designer-sidebar__promo-tag">Clizel Essence</span>
+                    <strong>
+                      {themeMode === "dark" ? "Shadow Workspace" : "Light Studio"} + {" "}
+                      {visualTheme === "vibe" ? "Aura Active" : "Essential Mode"}
+                    </strong>
+                    <p>
+                      {visualTheme === "vibe"
+                        ? `Aura is currently syncing with ${VIBE_MOOD_OPTIONS.find((mood) => mood.id === vibeMood)?.label ?? "Excited"} mood and ${backgroundEffect} effects.`
+                        : "Focus-first minimalist layout designed for distraction-free AI logic and speed."}
+                    </p>
+                  </div>
+                </aside>
+
+                <div className="theme-designer-main">
+                  <div className="theme-modal__header theme-modal__header--designer">
+                    <div className="theme-modal__title-wrap">
+                      <div className="theme-modal__title-badge">Vibe Designer Pro</div>
+                      <div className="theme-modal__header-copy">
+                        <strong>Build your perfect premium workspace</strong>
+                        <p>Sophisticated dark surfaces, sharp accents, and smooth cinematic transitions.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="theme-modal__ghost-btn"
+                        onClick={resetPremiumTheme}
+                      >
+                        Reset theme
+                      </button>
+                    </div>
+                    <button type="button" className="theme-designer-close" onClick={() => setThemeModalOpen(false)}>×</button>
+                  </div>
+
+                  <div
+                    ref={themeDesignerBodyRef}
+                    className="theme-modal__body premium-scroll"
+                    onScroll={handleThemeDesignerScroll}
+                  >
+                    <section
+                      className="theme-modal__section theme-modal__section--preview"
+                      style={
+                        {
+                          "--designer-preview-gradient": premiumPaletteGradient,
+                          "--designer-preview-surface": activeMoodMeta.surface,
+                          "--designer-preview-accent": premiumPalette[0],
+                          "--designer-preview-accent-soft": hexToRgba(premiumPalette[2], 0.26),
+                        } as CSSProperties
+                      }
+                    >
+                      <div className="theme-modal__section-copy">
+                        <strong>Live preview</strong>
+                        <span>See every change before you save it.</span>
+                      </div>
+                      <div
+                        className={`theme-designer-live-preview ${
+                          themeMode === "dark" ? "is-dark" : "is-light"
+                        } ${visualTheme === "vibe" ? "is-vibe" : "is-default"}`}
+                      >
+                        <div className="theme-designer-live-preview__texture" aria-hidden="true" />
+                        <div className="theme-designer-live-preview__sidebar">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <div className="theme-designer-live-preview__main">
+                          <div className="theme-designer-live-preview__topline">
+                            <strong>{themeMode === "dark" ? "Night mode" : "Day mode"}</strong>
+                            <small>{visualTheme === "vibe" ? activeMoodMeta.label : "Default"}</small>
+                          </div>
+                          <div className="theme-designer-live-preview__messages">
+                            <i className="theme-designer-live-preview__bubble theme-designer-live-preview__bubble--ai" />
+                            <i className="theme-designer-live-preview__bubble theme-designer-live-preview__bubble--user" />
+                            <i className="theme-designer-live-preview__bubble theme-designer-live-preview__bubble--ai is-short" />
+                          </div>
+                          <div className="theme-designer-live-preview__composer">
+                            <span />
+                            <em>{backgroundEffect === "none" ? "No atmosphere" : backgroundEffect}</em>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section
+                      ref={(node) => {
+                        themeDesignerSectionRefs.current.theme = node;
+                      }}
+                      className="theme-modal__section"
+                    >
+                      <div className="theme-modal__section-copy">
+                        <strong>Base theme</strong>
+                        <span>Choose your overall canvas.</span>
+                      </div>
+                      <div className="theme-preview-grid theme-preview-grid--base">
+                        {BASE_THEME_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`theme-preview-card theme-preview-card--base theme-preview-card--${option.id} ${
+                              themeMode === option.id ? "is-active" : ""
+                            }`}
+                            onClick={() => {
+                              setActiveThemeDesignerSection("theme");
+                              setThemeMode(option.id);
+                            }}
+                          >
+                            <div className="theme-preview-card__topline">
+                              <span className="theme-preview-card__eyebrow">{option.eyebrow}</span>
+                              <span className="theme-preview-card__check">{themeMode === option.id ? "Selected" : "Pick"}</span>
+                            </div>
+                            <div className="theme-preview-card__mockup" aria-hidden="true">
+                              <span className="theme-preview-card__sidebar" />
+                              <span className="theme-preview-card__panel">
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            </div>
+                            <div className="theme-preview-card__swatches" aria-hidden="true">
+                              <i />
+                              <i />
+                              <i />
+                              <i />
+                            </div>
+                            <div className="theme-preview-card__copy">
+                              <strong>{option.label}</strong>
+                              <small>{option.description}</small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section
+                      ref={(node) => {
+                        themeDesignerSectionRefs.current.style = node;
+                      }}
+                      className="theme-modal__section"
+                    >
+                      <div className="theme-modal__section-copy">
+                        <strong>Chat style</strong>
+                        <span>Switch between clean and vivid chat.</span>
+                      </div>
+                      <div className="theme-preview-grid theme-preview-grid--style">
+                        {VISUAL_THEME_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`theme-preview-card theme-preview-card--style ${
+                              option.id === "vibe" ? "theme-preview-card--vibe" : "theme-preview-card--default"
+                            } ${visualTheme === option.id ? "is-active" : ""}`}
+                            onClick={() => {
+                              setActiveThemeDesignerSection("style");
+                              setVisualTheme(option.id);
+                            }}
+                          >
+                            <div className="theme-preview-card__topline">
+                              <span className="theme-preview-card__badge">{option.badge}</span>
+                              <span className="theme-preview-card__check">
+                                {visualTheme === option.id ? "Selected" : "Preview"}
+                              </span>
+                            </div>
+                            <div className="theme-preview-card__scene" aria-hidden="true">
+                              <span className="theme-preview-card__scene-nav" />
+                              <span className="theme-preview-card__scene-main">
+                                <i className="theme-preview-card__bubble theme-preview-card__bubble--ai" />
+                                <i className="theme-preview-card__bubble theme-preview-card__bubble--user" />
+                                <i className="theme-preview-card__composer" />
+                              </span>
+                            </div>
+                            <div className="theme-preview-card__copy">
+                              <strong>{option.label}</strong>
+                              <small>{option.description}</small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section
+                      ref={(node) => {
+                        themeDesignerSectionRefs.current.mood = node;
+                      }}
+                      className="theme-modal__section"
+                    >
+                      <div className="theme-modal__section-copy">
+                        <strong>Vibe presets</strong>
+                        <span>Small color boxes for quick mood switching. These auto-enable Vibe Mode when you tap one.</span>
+                      </div>
+                      <div className={`theme-mood-grid ${visualTheme !== "vibe" ? "is-disabled" : ""}`}>
+                        {VIBE_MOOD_OPTIONS.map((mood) => (
+                          <button
+                            key={mood.id}
+                            type="button"
+                            className={`theme-mood-chip ${vibeMood === mood.id ? "is-active" : ""}`}
+                            onClick={() => {
+                              setActiveThemeDesignerSection("mood");
+                              setVisualTheme("vibe");
+                              setVibeMood(mood.id);
+                            }}
+                            aria-pressed={vibeMood === mood.id}
+                            style={
+                              {
+                                "--theme-mood-surface": mood.surface,
+                                "--theme-mood-accent-a": mood.accent[0],
+                                "--theme-mood-accent-b": mood.accent[1],
+                              } as CSSProperties
+                            }
+                          >
+                            <div className="theme-mood-chip__preview" aria-hidden="true">
+                              <span className="theme-mood-chip__spark" />
+                              <span className="theme-mood-chip__layout">
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            </div>
+                            <div className="theme-mood-chip__meta">
+                              <span>{mood.label}</span>
+                              <small>{mood.description}</small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section
+                      ref={(node) => {
+                        themeDesignerSectionRefs.current.premium = node;
+                      }}
+                      className="theme-modal__section"
+                    >
+                      <div className="theme-modal__section-copy">
+                        <strong>Custom Polish</strong>
+                        <span>Exclusive presets and high-performance color tokens for the ultimate premium feel.</span>
+                      </div>
+                      {!isPremiumUser ? (
+                        <div className="upgrade-teaser-card">
+                          <div className="upgrade-teaser-card__content">
+                            <strong>Nitro Theme Upgrade</strong>
+                            <p>Unlock custom gradients, orbital glow, and animated waves.</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="upgrade-teaser-card__btn"
+                            onClick={() => {
+                              setIsPremiumUser(true);
+                              setActiveThemeDesignerSection("premium");
+                              setVisualTheme("vibe");
+                            }}
+                          >
+                            Unlock now
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="premium-builder-grid">
+                          <div
+                            className="premium-live-preview premium-glass"
+                            style={{ "--premium-preview-gradient": premiumPaletteGradient } as CSSProperties}
+                          >
+                            <div className="premium-live-preview__copy">
+                              <strong>{customThemePreset}</strong>
+                              <span>
+                                {visualTheme === "vibe" ? "Live in Vibe Mode" : "Ready when Vibe Mode is enabled"}
+                              </span>
+                            </div>
+                            <div className="premium-live-preview__swatches" aria-hidden="true">
+                              {premiumPalette.map((color, index) => (
+                                <i key={`${color}-${index}`} style={{ background: color }} />
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="premium-presets-row">
+                            <button
+                              type="button"
+                              className={`premium-preset-chip ${
+                                !Object.prototype.hasOwnProperty.call(PREMIUM_THEME_PRESETS, customThemePreset)
+                                  ? "is-active"
+                                  : ""
+                              }`}
+                              onClick={() => {
+                                setIsPremiumUser(true);
+                                setActiveThemeDesignerSection("premium");
+                                setVisualTheme("vibe");
+                                setCustomThemePreset("Custom Mix");
+                              }}
+                            >
+                              Custom Mix
+                            </button>
+                            {Object.keys(PREMIUM_THEME_PRESETS).map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                className={`premium-preset-chip ${customThemePreset === preset ? "is-active" : ""}`}
+                                onClick={() => applyPremiumPreset(preset)}
+                              >
+                                {preset}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="premium-controls-grid">
+                            <div className="premium-control-item">
+                              <label>Primary Glow</label>
+                              <input
+                                type="color"
+                                value={premiumPalette[0]}
+                                onChange={(e) => updateCustomThemeColor(0, e.target.value)}
+                              />
+                            </div>
+                            <div className="premium-control-item">
+                              <label>Secondary</label>
+                              <input
+                                type="color"
+                                value={premiumPalette[1]}
+                                onChange={(e) => updateCustomThemeColor(1, e.target.value)}
+                              />
+                            </div>
+                            <div className="premium-control-item">
+                              <label>Accent</label>
+                              <input
+                                type="color"
+                                value={premiumPalette[2]}
+                                onChange={(e) => updateCustomThemeColor(2, e.target.value)}
+                              />
+                            </div>
+                            <div className="premium-control-item">
+                              <label>Atmosphere</label>
+                              <select
+                                value={backgroundEffect}
+                                onChange={(e) => handlePremiumEffectChange(e.target.value as BackgroundEffect)}
+                                className="premium-select"
+                              >
+                                <option value="none">None</option>
+                                <option value="glow">Orbital Glow</option>
+                                <option value="sparkles">Starfield Sparkles</option>
+                                <option value="waves">Kinetic Waves</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+    </div>
       </div>
 
       {cameraOpen && (
@@ -3790,258 +4209,11 @@ export default function ChatExperience({
         </div>
       )}
 
-      {themeModalOpen && (
-        <div className="support-modal-backdrop is-open" onClick={() => setThemeModalOpen(false)}>
-          <div className="support-modal__card theme-modal__fixed-height" onClick={(e) => e.stopPropagation()}>
-            <div className="theme-designer-shell">
-              <aside className="theme-designer-sidebar">
-                <div className="theme-designer-profile">
-                  <div className="theme-designer-profile__avatar">
-                    {userProfile.avatarDataUrl ? (
-                      <img src={userProfile.avatarDataUrl} alt={profileDisplayName} />
-                    ) : (
-                      <span>{profileInitial}</span>
-                    )}
-                  </div>
-                  <div className="theme-designer-profile__copy">
-                    <strong>{profileDisplayName}</strong>
-                    <span>{userProfile.userPlan ?? "Free plan"}</span>
-                  </div>
-                </div>
-
-                <div className="theme-designer-sidebar__group">
-                  <p className="theme-designer-sidebar__label">Appearance</p>
-                  <button type="button" className="theme-designer-sidebar__item is-active">
-                    <span>Theme</span>
-                    <small>Compact boxed layout</small>
-                  </button>
-                  <button type="button" className="theme-designer-sidebar__item">
-                    <span>Chat style</span>
-                    <small>{visualTheme === "vibe" ? "Immersive glow" : "Clean default"}</small>
-                  </button>
-                  <button type="button" className="theme-designer-sidebar__item">
-                    <span>Color presets</span>
-                    <small>{VIBE_MOOD_OPTIONS.find((mood) => mood.id === vibeMood)?.label ?? "Happy"}</small>
-                  </button>
-                </div>
-
-                <div className="theme-designer-sidebar__promo">
-                  <span className="theme-designer-sidebar__promo-tag">Live Theme</span>
-                  <strong>
-                    {themeMode === "dark" ? "Night Studio" : "Soft Daylight"} + {" "}
-                    {visualTheme === "vibe" ? "Vibe Mode" : "Clean Default"}
-                  </strong>
-                  <p>Discord-inspired small cards, softer borders, and a smoother panel vibe.</p>
-                </div>
-              </aside>
-
-              <div className="theme-designer-main">
-                <div className="theme-modal__header theme-modal__header--designer">
-                  <div className="theme-modal__title-wrap">
-                    <div className="theme-modal__title-badge">Vibe Designer Pro</div>
-                    <div className="theme-modal__header-copy">
-                      <strong>Build your perfect premium workspace</strong>
-                      <p>Sophisticated dark surfaces, sharp accents, and smooth cinematic transitions.</p>
-                    </div>
-                  </div>
-                  <button type="button" className="auth-modal__close" onClick={() => setThemeModalOpen(false)}>×</button>
-                </div>
-
-                <div className="theme-modal__body premium-scroll">
-                  <section className="theme-modal__section">
-                    <div className="theme-modal__section-copy">
-                      <strong>Base theme</strong>
-                      <span>Choose the overall shell first. Each option keeps the compact Discord-like boxed layout.</span>
-                    </div>
-                    <div className="theme-preview-grid theme-preview-grid--base">
-                      {BASE_THEME_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={`theme-preview-card theme-preview-card--base theme-preview-card--${option.id} ${
-                            themeMode === option.id ? "is-active" : ""
-                          }`}
-                          onClick={() => setThemeMode(option.id)}
-                        >
-                          <div className="theme-preview-card__topline">
-                            <span className="theme-preview-card__eyebrow">{option.eyebrow}</span>
-                            <span className="theme-preview-card__check">{themeMode === option.id ? "Selected" : "Pick"}</span>
-                          </div>
-                          <div className="theme-preview-card__mockup" aria-hidden="true">
-                            <span className="theme-preview-card__sidebar" />
-                            <span className="theme-preview-card__panel">
-                              <i />
-                              <i />
-                              <i />
-                            </span>
-                          </div>
-                          <div className="theme-preview-card__swatches" aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                            <i />
-                          </div>
-                          <div className="theme-preview-card__copy">
-                            <strong>{option.label}</strong>
-                            <small>{option.description}</small>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="theme-modal__section">
-                    <div className="theme-modal__section-copy">
-                      <strong>Chat style</strong>
-                      <span>Keep it clean or turn on the richer vibe layer with glow, depth, and premium motion.</span>
-                    </div>
-                    <div className="theme-preview-grid theme-preview-grid--style">
-                      {VISUAL_THEME_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={`theme-preview-card theme-preview-card--style ${
-                            option.id === "vibe" ? "theme-preview-card--vibe" : "theme-preview-card--default"
-                          } ${visualTheme === option.id ? "is-active" : ""}`}
-                          onClick={() => setVisualTheme(option.id)}
-                        >
-                          <div className="theme-preview-card__topline">
-                            <span className="theme-preview-card__badge">{option.badge}</span>
-                            <span className="theme-preview-card__check">
-                              {visualTheme === option.id ? "Selected" : "Preview"}
-                            </span>
-                          </div>
-                          <div className="theme-preview-card__scene" aria-hidden="true">
-                            <span className="theme-preview-card__scene-nav" />
-                            <span className="theme-preview-card__scene-main">
-                              <i className="theme-preview-card__bubble theme-preview-card__bubble--ai" />
-                              <i className="theme-preview-card__bubble theme-preview-card__bubble--user" />
-                              <i className="theme-preview-card__composer" />
-                            </span>
-                          </div>
-                          <div className="theme-preview-card__copy">
-                            <strong>{option.label}</strong>
-                            <small>{option.description}</small>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="theme-modal__section">
-                    <div className="theme-modal__section-copy">
-                      <strong>Vibe presets</strong>
-                      <span>Small color boxes for quick mood switching. These auto-enable Vibe Mode when you tap one.</span>
-                    </div>
-                    <div className={`theme-mood-grid ${visualTheme !== "vibe" ? "is-disabled" : ""}`}>
-                      {VIBE_MOOD_OPTIONS.map((mood) => (
-                        <button
-                          key={mood.id}
-                          type="button"
-                          className={`theme-mood-chip ${vibeMood === mood.id ? "is-active" : ""}`}
-                          onClick={() => {
-                            setVisualTheme("vibe");
-                            setVibeMood(mood.id);
-                          }}
-                          style={
-                            {
-                              "--theme-mood-surface": mood.surface,
-                              "--theme-mood-accent-a": mood.accent[0],
-                              "--theme-mood-accent-b": mood.accent[1],
-                            } as CSSProperties
-                          }
-                        >
-                          <div className="theme-mood-chip__preview" aria-hidden="true">
-                            <span className="theme-mood-chip__spark" />
-                            <span className="theme-mood-chip__layout">
-                              <i />
-                              <i />
-                              <i />
-                            </span>
-                          </div>
-                          <div className="theme-mood-chip__meta">
-                            <span>{mood.label}</span>
-                            <small>{mood.description}</small>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="theme-modal__section">
-                    <div className="theme-modal__section-copy">
-                      <strong>Custom Polish</strong>
-                      <span>Exclusive presets and high-performance color tokens for the ultimate premium feel.</span>
-                    </div>
-                    {!isPremiumUser ? (
-                      <div className="upgrade-teaser-card">
-                        <div className="upgrade-teaser-card__content">
-                          <strong>Nitro Theme Upgrade</strong>
-                          <p>Unlock custom gradients, orbital glow, and animated waves.</p>
-                        </div>
-                        <button type="button" className="upgrade-teaser-card__btn" onClick={() => setIsPremiumUser(true)}>Unlock now</button>
-                      </div>
-                    ) : (
-                      <div className="premium-builder-grid">
-                        <div className="premium-presets-row">
-                          {Object.keys(PREMIUM_THEME_PRESETS).map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              className={`premium-preset-chip ${customThemePreset === preset ? "is-active" : ""}`}
-                              onClick={() => {
-                                setCustomThemePreset(preset);
-                                setCustomThemeColors(PREMIUM_THEME_PRESETS[preset]);
-                              }}
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="premium-controls-grid">
-                          <div className="premium-control-item">
-                            <label>Primary Glow</label>
-                            <input
-                              type="color"
-                              value={customThemeColors[0]}
-                              onChange={(e) => setCustomThemeColors([e.target.value, customThemeColors[1], customThemeColors[2]])}
-                            />
-                          </div>
-                          <div className="premium-control-item">
-                            <label>Secondary</label>
-                            <input
-                              type="color"
-                              value={customThemeColors[1]}
-                              onChange={(e) => setCustomThemeColors([customThemeColors[0], e.target.value, customThemeColors[2]])}
-                            />
-                          </div>
-                          <div className="premium-control-item">
-                            <label>Atmosphere</label>
-                            <select
-                              value={backgroundEffect}
-                              onChange={(e) => setBackgroundEffect(e.target.value as BackgroundEffect)}
-                              className="premium-select"
-                            >
-                              <option value="none">None</option>
-                              <option value="glow">Orbital Glow</option>
-                              <option value="sparkles">Starfield Sparkles</option>
-                              <option value="waves">Kinetic Waves</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </section>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       <ToastContainer />
     </div>
   );
 }
+
+
 
 

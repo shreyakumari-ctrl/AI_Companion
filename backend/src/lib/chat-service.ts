@@ -8,7 +8,7 @@ import { buildChatCacheKey, responseCache } from "./response-cache";
 import { normalizeBrandText } from "./brand-text";
 
 type ProviderName = keyof typeof providerRegistry;
-const PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
+const PROVIDER_COOLDOWN_MS = 10 * 1000; // Reduced to 10 seconds for faster retries
 const providerUnavailableUntil = new Map<ProviderName, number>();
 
 export type ChatExecutionInput = {
@@ -278,10 +278,10 @@ async function prepareChatRequest(
   const effectiveUserId = auth?.userId ?? params.userId ?? null;
   const user = effectiveUserId
     ? await prisma.user.findUnique({
-        where: {
-          id: effectiveUserId,
-        },
-      })
+      where: {
+        id: effectiveUserId,
+      },
+    })
     : null;
 
   const conversation = await resolveStoredConversation({
@@ -647,11 +647,11 @@ export async function listConversationsForUser(
     messageCount: conversation._count.messages,
     lastMessage: conversation.messages[0]
       ? {
-          role: conversation.messages[0].role,
-          content: conversation.messages[0].content,
-          createdAt: conversation.messages[0].createdAt.toISOString(),
-          provider: conversation.messages[0].provider,
-        }
+        role: conversation.messages[0].role,
+        content: conversation.messages[0].content,
+        createdAt: conversation.messages[0].createdAt.toISOString(),
+        provider: conversation.messages[0].provider,
+      }
       : null,
   }));
 }
